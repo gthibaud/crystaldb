@@ -149,16 +149,39 @@ export interface Unit extends UnitRecord {
     updatedAt: Date;
 }
 
+export interface StoredDataItemDocument {
+    id: string; // technical identifier
+    businessId: string;
+    type: UnitTypeKind;
+    documentation?: DocumentationBlock;
+    metadata?: DataItemMetadataConfig;
+}
+
+export interface StoredUnitTypeDocument {
+    id: string; // technical identifier
+    businessId: string;
+    documentation: DocumentationBlock;
+    items: StoredDataItemDocument[];
+    metadata?: UnitTypeMetadataConfig;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
 export interface StoredUnitType extends UnitTypeDefinition {
     createdAt: Date;
     updatedAt: Date;
 }
 
+export interface StoredUnitMetadata extends Omit<UnitMetadata, "itemStatuses"> {
+    itemStatuses?: Record<string, StatusDescriptor | Record<string, StatusDescriptor>>;
+}
+
 export interface StoredUnitDocument {
-    id: string;
-    type: string;
+    id: string; // technical identifier
+    businessId: string;
+    typeId: string; // technical unit type id
     values: Record<string, unknown>;
-    metadata?: UnitMetadata;
+    metadata?: StoredUnitMetadata;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -173,11 +196,8 @@ export interface ValidationContext {
 
 export type ValidationHandler = (context: ValidationContext) => Promise<void>;
 
-export type IdGenerator = () => string | Promise<string>;
-
 export interface CrystalDBOptions {
     adapter: CrystalDatabaseAdapter;
-    idGenerator?: IdGenerator;
     validationHandler?: ValidationHandler;
 }
 
@@ -237,9 +257,11 @@ export interface SerializationContext {
 
 export interface CrystalDatabaseAdapter {
     initialize(): Promise<void>;
-    upsertUnitType(definition: UnitTypeDefinition, now: Date): Promise<StoredUnitType>;
-    getUnitTypeById(id: string): Promise<StoredUnitType | null>;
+    upsertUnitType(document: StoredUnitTypeDocument): Promise<void>;
+    findUnitTypeByBusinessId(businessId: string): Promise<StoredUnitTypeDocument | null>;
+    findUnitTypeById(id: string): Promise<StoredUnitTypeDocument | null>;
     insertUnit(doc: StoredUnitDocument): Promise<void>;
     replaceUnit(doc: StoredUnitDocument): Promise<void>;
-    getUnitById(id: string): Promise<StoredUnitDocument | null>;
+    findUnitByBusinessId(businessId: string): Promise<StoredUnitDocument | null>;
+    findUnitById(id: string): Promise<StoredUnitDocument | null>;
 }

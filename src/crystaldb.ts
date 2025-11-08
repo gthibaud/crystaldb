@@ -3,10 +3,12 @@ import {
     CreateUnitInput,
     CrystalDBOptions,
     CrystalDatabaseAdapter,
-    IdGenerator,
     StoredUnitDocument,
+    StoredUnitMetadata,
     StoredUnitType,
+    StoredUnitTypeDocument,
     Unit,
+    UnitMetadata,
     UnitTypeDefinition,
     UnitWriteOperation,
     UpdateUnitPatch,
@@ -25,12 +27,10 @@ const loadIdGenerator = async (): Promise<() => string> => {
 
 export class CrystalDB {
     private readonly adapter: CrystalDatabaseAdapter;
-    private readonly idGenerator?: IdGenerator;
     private validationHandler?: ValidationHandler;
 
     constructor(options: CrystalDBOptions) {
         this.adapter = options.adapter;
-        this.idGenerator = options.idGenerator;
         this.validationHandler = options.validationHandler;
     }
 
@@ -43,99 +43,132 @@ export class CrystalDB {
     }
 
     async upsertUnitType(definition: UnitTypeDefinition): Promise<StoredUnitType> {
-        const now = new Date();
-        return this.adapter.upsertUnitType(definition, now);
+        const existingDocument =
+            (await this.adapter.findUnitTypeByBusinessId(definition.id)) ?? null;
+
+        const id = existingDocument?.id ?? (await this.generateTechnicalId());
+        const createdAt = existingDocument?.createdAt ?? new Date();
+        const updatedAt = new Date();
+
+        const existingItemMap = new Map(
+            (existingDocument?.items ?? []).map((item) => [item.businessId, item])
+        );
+
+        const items = await Promise.all(
+            definition.items.map(async (item) => {
+                const existing = existingItemMap.get(item.id);
+                return {
+                    id: existing?.id ?? (await this.generateTechnicalId()),
+                    businessId: item.id,
+                    type: item.type,
+                    documentation: item.documentation,
+                    metadata: item.metadata,
+                };
+            })
+        );
+
+        const document: StoredUnitTypeDocument = {
+            id,
+            businessId: definition.id,
+            documentation: definition.documentation,
+            items,
+            metadata: definition.metadata,
+            createdAt,
+            updatedAt,
+        };
+
+        await this.adapter.upsertUnitType(document);
+
+        return this.mapUnitTypeDocumentToDomain(document);
     }
 
     async getUnitTypeById(id: string): Promise<StoredUnitType | null> {
-        return this.adapter.getUnitTypeById(id);
+        const document = await this.adapter.findUnitTypeByBusinessId(id);
+        return document ? this.mapUnitTypeDocumentToDomain(document) : null;
     }
 
     async createUnit(unit: CreateUnitInput): Promise<Unit> {
-        const unitType = await this.getUnitTypeOrThrow(unit.type);
+        const bundle = await this.getUnitTypeBundleByBusinessId(unit.type);
 
-        const unitId = await this.resolveUnitId(unit.id);
+        const unitId = await this.generateTechnicalId();
+        const businessId = await this.resolveBusinessId(unit.id);
         const now = new Date();
 
-        const serializedValues = serializeUnitValues(unitType, unit.values);
+        const serializedValues = serializeUnitValues(bundle.domain, unit.values);
+        const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
+        const storedMetadata = this.serializeUnitMetadata(bundle, unit.metadata);
+
         const storedDoc: StoredUnitDocument = {
             id: unitId,
-            type: unit.type,
-            values: serializedValues,
-            metadata: unit.metadata ?? {},
+            businessId,
+            typeId: bundle.document.id,
+            values: storedValues,
+            metadata: storedMetadata,
             createdAt: now,
             updatedAt: now,
         };
 
-        const domainUnit = this.buildUnitFromDocument(unitType, storedDoc);
-        await this.runValidation("create", unitType, domainUnit);
+        const domainUnit = this.buildDomainUnit(bundle, storedDoc);
+        await this.runValidation("create", bundle.domain, domainUnit);
 
         await this.adapter.insertUnit(storedDoc);
         return domainUnit;
     }
 
     async updateUnit(unitId: string, patch: UpdateUnitPatch): Promise<Unit | null> {
-        const existingDoc = await this.adapter.getUnitById(unitId);
+        const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
         if (!existingDoc) {
             return null;
         }
 
-        const unitType = await this.getUnitTypeOrThrow(existingDoc.type);
-        const existingDomain = this.buildUnitFromDocument(unitType, existingDoc);
+        const bundle = await this.getUnitTypeBundleByTechnicalId(existingDoc.typeId);
+        const existingDomain = this.buildDomainUnit(bundle, existingDoc);
 
         const mergedValues = patch.values
             ? {
-                  ...existingDomain.values,
-                  ...patch.values,
-              }
+                ...existingDomain.values,
+                ...patch.values,
+            }
             : existingDomain.values;
 
-        const serializedValues = serializeUnitValues(unitType, mergedValues, {
-            existingValues: existingDoc.values,
+        const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
+
+        const serializedValues = serializeUnitValues(bundle.domain, mergedValues, {
+            existingValues: baseValues,
         });
+
+        const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
+        const mergedMetadata = patch.metadata
+            ? {
+                ...existingDomain.metadata,
+                ...patch.metadata,
+            }
+            : existingDomain.metadata;
+        const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
 
         const updatedDoc: StoredUnitDocument = {
             ...existingDoc,
-            values: serializedValues,
-            metadata: patch.metadata ?? existingDoc.metadata,
+            values: storedValues,
+            metadata: storedMetadata,
             updatedAt: new Date(),
         };
 
-        const domainUnit = this.buildUnitFromDocument(unitType, updatedDoc);
+        const domainUnit = this.buildDomainUnit(bundle, updatedDoc);
 
-        await this.runValidation("update", unitType, domainUnit);
+        await this.runValidation("update", bundle.domain, domainUnit);
         await this.adapter.replaceUnit(updatedDoc);
 
         return domainUnit;
     }
 
     async getUnitById(id: string): Promise<Unit | null> {
-        const stored = await this.adapter.getUnitById(id);
+        const stored = await this.adapter.findUnitByBusinessId(id);
         if (!stored) {
             return null;
         }
 
-        const unitType = await this.getUnitTypeOrThrow(stored.type);
-        return this.buildUnitFromDocument(unitType, stored);
-    }
-
-    private async getUnitTypeOrThrow(typeId: string): Promise<StoredUnitType> {
-        const unitType = await this.getUnitTypeById(typeId);
-        if (!unitType) {
-            throw new Error(`Unit type ${typeId} not found`);
-        }
-        return unitType;
-    }
-
-    private buildUnitFromDocument(unitType: StoredUnitType, doc: StoredUnitDocument): Unit {
-        return {
-            id: doc.id,
-            type: doc.type,
-            values: deserializeUnitValues(unitType, doc.values),
-            metadata: doc.metadata,
-            createdAt: doc.createdAt,
-            updatedAt: doc.updatedAt,
-        };
+        const bundle = await this.getUnitTypeBundleByTechnicalId(stored.typeId);
+        return this.buildDomainUnit(bundle, stored);
     }
 
     private async runValidation(
@@ -154,15 +187,187 @@ export class CrystalDB {
         });
     }
 
-    private async resolveUnitId(providedId?: string): Promise<string> {
-        if (providedId) {
-            return providedId;
-        }
-        if (this.idGenerator) {
-            const generated = this.idGenerator();
-            return generated instanceof Promise ? await generated : generated;
-        }
+    private async generateTechnicalId(): Promise<string> {
         const generator = await loadIdGenerator();
         return generator();
     }
+
+    private async resolveBusinessId(providedId?: string): Promise<string> {
+        if (providedId) {
+            return providedId;
+        }
+        return this.generateTechnicalId();
+    }
+
+    private mapUnitTypeDocumentToDomain(document: StoredUnitTypeDocument): StoredUnitType {
+        return {
+            id: document.businessId,
+            documentation: document.documentation,
+            items: document.items.map((item) => ({
+                id: item.businessId,
+                type: item.type,
+                documentation: item.documentation,
+                metadata: item.metadata,
+            })),
+            metadata: document.metadata,
+            createdAt: document.createdAt,
+            updatedAt: document.updatedAt,
+        };
+    }
+
+    private buildItemMaps(document: StoredUnitTypeDocument): {
+        businessToTechnical: Map<string, string>;
+        technicalToBusiness: Map<string, string>;
+    } {
+        const businessToTechnical = new Map<string, string>();
+        const technicalToBusiness = new Map<string, string>();
+
+        for (const item of document.items) {
+            businessToTechnical.set(item.businessId, item.id);
+            technicalToBusiness.set(item.id, item.businessId);
+        }
+
+        return { businessToTechnical, technicalToBusiness };
+    }
+
+    private async getUnitTypeBundleByBusinessId(businessId: string): Promise<UnitTypeBundle> {
+        const document = await this.adapter.findUnitTypeByBusinessId(businessId);
+        if (!document) {
+            throw new Error(`Unit type ${businessId} not found`);
+        }
+        return this.buildUnitTypeBundle(document);
+    }
+
+    private async getUnitTypeBundleByTechnicalId(typeId: string): Promise<UnitTypeBundle> {
+        const document = await this.adapter.findUnitTypeById(typeId);
+        if (!document) {
+            throw new Error(`Unit type with technical id ${typeId} not found`);
+        }
+        return this.buildUnitTypeBundle(document);
+    }
+
+    private buildUnitTypeBundle(document: StoredUnitTypeDocument): UnitTypeBundle {
+        const domain = this.mapUnitTypeDocumentToDomain(document);
+        const maps = this.buildItemMaps(document);
+        return {
+            document,
+            domain,
+            maps,
+        };
+    }
+
+    private mapBusinessValuesToTechnical(
+        bundle: UnitTypeBundle,
+        values: Record<string, unknown>
+    ): Record<string, unknown> {
+        const technicalValues: Record<string, unknown> = {};
+
+        for (const [businessId, value] of Object.entries(values)) {
+            const technicalId = bundle.maps.businessToTechnical.get(businessId);
+            if (!technicalId) {
+                throw new Error(
+                    `Unknown data item "${businessId}" for unit type ${bundle.domain.id}`
+                );
+            }
+            technicalValues[technicalId] = value;
+        }
+
+        return technicalValues;
+    }
+
+    private mapTechnicalValuesToBusinessRaw(
+        bundle: UnitTypeBundle,
+        values: Record<string, unknown> | undefined
+    ): Record<string, unknown> {
+        if (!values) {
+            return {};
+        }
+
+        const businessValues: Record<string, unknown> = {};
+        for (const [technicalId, value] of Object.entries(values)) {
+            const businessId = bundle.maps.technicalToBusiness.get(technicalId);
+            if (!businessId) {
+                continue;
+            }
+            businessValues[businessId] = value;
+        }
+
+        return businessValues;
+    }
+
+    private serializeUnitMetadata(
+        bundle: UnitTypeBundle,
+        metadata?: UnitMetadata
+    ): StoredUnitMetadata | undefined {
+        if (!metadata) {
+            return undefined;
+        }
+
+        const { itemStatuses, ...rest } = metadata;
+        const stored: StoredUnitMetadata = { ...rest };
+
+        if (itemStatuses) {
+            const mapped: StoredUnitMetadata["itemStatuses"] = {};
+            for (const [businessId, status] of Object.entries(itemStatuses)) {
+                const technicalId = bundle.maps.businessToTechnical.get(businessId);
+                if (!technicalId) {
+                    continue;
+                }
+                mapped[technicalId] = status;
+            }
+            stored.itemStatuses = mapped;
+        }
+
+        return stored;
+    }
+
+    private deserializeUnitMetadata(
+        bundle: UnitTypeBundle,
+        metadata?: StoredUnitMetadata
+    ): UnitMetadata | undefined {
+        if (!metadata) {
+            return undefined;
+        }
+
+        const { itemStatuses, ...rest } = metadata;
+        const domain: UnitMetadata = { ...rest };
+
+        if (itemStatuses) {
+            const mapped: UnitMetadata["itemStatuses"] = {};
+            for (const [technicalId, status] of Object.entries(itemStatuses)) {
+                const businessId = bundle.maps.technicalToBusiness.get(technicalId);
+                if (!businessId) {
+                    continue;
+                }
+                mapped[businessId] = status;
+            }
+            domain.itemStatuses = mapped;
+        }
+
+        return domain;
+    }
+
+    private buildDomainUnit(bundle: UnitTypeBundle, doc: StoredUnitDocument): Unit {
+        const businessValues = this.mapTechnicalValuesToBusinessRaw(bundle, doc.values);
+        const deserializedValues = deserializeUnitValues(bundle.domain, businessValues);
+        const metadata = this.deserializeUnitMetadata(bundle, doc.metadata);
+
+        return {
+            id: doc.businessId,
+            type: bundle.domain.id,
+            values: deserializedValues,
+            metadata,
+            createdAt: doc.createdAt,
+            updatedAt: doc.updatedAt,
+        };
+    }
+}
+
+interface UnitTypeBundle {
+    document: StoredUnitTypeDocument;
+    domain: StoredUnitType;
+    maps: {
+        businessToTechnical: Map<string, string>;
+        technicalToBusiness: Map<string, string>;
+    };
 }

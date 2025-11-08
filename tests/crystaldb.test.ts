@@ -246,6 +246,8 @@ describe("CrystalDB", () => {
         await crystal.upsertUnitType(baseUnitType);
         const stored = await crystal.getUnitTypeById(baseUnitType.id);
 
+        console.log(JSON.stringify(stored, null, 2));
+
         expect(stored).not.toBeNull();
         expect(stored?.items).toHaveLength(baseUnitType.items.length);
         expect(stored?.createdAt).toBeInstanceOf(Date);
@@ -290,6 +292,8 @@ describe("CrystalDB", () => {
             },
         });
 
+        console.log(JSON.stringify(unit, null, 2));
+
         expect(unit.id).toBeDefined();
         expect(unit.values.name).toBe("John Doe");
         expect(unit.values.bio).toBe("# Heading");
@@ -317,30 +321,59 @@ describe("CrystalDB", () => {
         expect((unit.values.avatar as { name: string })?.name).toBe("user");
 
         const db = client.db(databaseName);
-        const storedUnit = await db.collection("units").findOne({ id: unit.id });
-        const storedUnitType = await db.collection("unitTypes").findOne({ id: baseUnitType.id });
+        const storedUnit = await db.collection("units").findOne({ businessId: unit.id });
+        const storedUnitType = await db
+            .collection("unitTypes")
+            .findOne({ businessId: baseUnitType.id });
 
-        expect(storedUnit?.type).toBe(baseUnitType.id);
-        expect(storedUnit?.values?.name).toBe("John Doe");
-        expect(storedUnit?.values?.bio).toBe("# Heading");
-        expect(storedUnit?.values?.age).toBe(32);
-        expect(storedUnit?.values?.progress).toBe(4250);
-        expect(storedUnit?.values?.active).toBe(true);
-        expect(storedUnit?.values?.ageRange).toEqual({ start: 25, end: 40 });
-        expect(storedUnit?.values?.joinedAt?.iso).toBe("2024-01-10T12:00:00.000Z");
-        expect(storedUnit?.values?.billingMonth?.month).toBe("2024-02");
-        expect(storedUnit?.values?.role).toEqual({ key: "manager", label: "Manager" });
-        expect(storedUnit?.values?.attachments?.[0]?.id).toBe("file-1");
-        expect(storedUnit?.values?.bonusFormula?.expression).toBe("base * 0.1");
-        expect(storedUnit?.values?.vacation?.start?.iso).toBe("2024-08-01T00:00:00.000Z");
-        expect(storedUnit?.values?.commute).toEqual({ value: 12.5, unit: "km" });
-        expect(storedUnit?.values?.avatar?.name).toBe("user");
-        expect(storedUnit?.values?.location?.label).toBe("Crystal HQ");
-        expect(storedUnit?.values?.manager).toEqual({
+        expect(storedUnit).toBeTruthy();
+        expect(storedUnitType).toBeTruthy();
+        expect(storedUnit?.id).not.toBe(unit.id);
+        expect(storedUnit?.businessId).toBe(unit.id);
+        expect(storedUnit?.typeId).toBe(storedUnitType?.id);
+        expect(storedUnitType?.id).not.toBe(baseUnitType.id);
+
+        const findTechnicalItemId = (businessId: string): string => {
+            const found = storedUnitType?.items?.find(
+                (item: { businessId: string; id: string }) => item.businessId === businessId
+            );
+            if (!found) {
+                throw new Error(`Missing stored item for ${businessId}`);
+            }
+            return found.id;
+        };
+
+        const valueOf = (businessId: string) => {
+            const technicalId = findTechnicalItemId(businessId);
+            return storedUnit?.values?.[technicalId];
+        };
+
+        expect(valueOf("name")).toBe("John Doe");
+        expect(valueOf("bio")).toBe("# Heading");
+        expect(valueOf("age")).toBe(32);
+        expect(valueOf("progress")).toBe(4250);
+        expect(valueOf("active")).toBe(true);
+        expect(valueOf("ageRange")).toEqual({ start: 25, end: 40 });
+        expect(valueOf("joinedAt")?.iso).toBe("2024-01-10T12:00:00.000Z");
+        expect(valueOf("billingMonth")?.month).toBe("2024-02");
+        expect(valueOf("role")).toEqual({ key: "manager", label: "Manager" });
+        expect(valueOf("attachments")?.[0]?.id).toBe("file-1");
+        expect(valueOf("bonusFormula")?.expression).toBe("base * 0.1");
+        expect(valueOf("vacation")?.start?.iso).toBe("2024-08-01T00:00:00.000Z");
+        expect(valueOf("commute")).toEqual({ value: 12.5, unit: "km" });
+        expect(valueOf("avatar")?.name).toBe("user");
+        expect(valueOf("location")?.label).toBe("Crystal HQ");
+        expect(valueOf("manager")).toEqual({
             unitId: "manager-123",
             unitType: baseUnitType.id,
         });
-        expect(storedUnitType).not.toHaveProperty("values");
+
+        expect(Object.keys(storedUnit?.values ?? {})).not.toContain("name");
+        expect(
+            storedUnitType?.items?.every(
+                (item: { id: string; businessId: string }) => item.id !== item.businessId
+            )
+        ).toBe(true);
     });
 
     it("invokes the validation handler before persisting data", async () => {

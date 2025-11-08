@@ -4,7 +4,7 @@ CrystalDB is a TypeScript library that wraps MongoDB with Crystalchain-specific 
 
 ## Features
 
-- Deterministic Crystal IDs powered by [`gthibaud-uid`](https://www.npmjs.com/package/gthibaud-uid) for units created through the library.
+- Automatic technical ID generation (via [`gthibaud-uid`](https://www.npmjs.com/package/gthibaud-uid)) for unit types, data items, and units—callers only interact with business-friendly identifiers.
 - Dedicated serializers/deserializers for core data item kinds (`string`, `markdown`, `number`, `percentage`, `geoAddress`, `reference`) to keep stored payloads normalized while exposing rich domain types to callers.
 - Simple validation hook that can be wired to an external microservice before writes.
 - Adapter-based persistence layer so that MongoDB is just one backend; swap in another database by implementing the adapter contract.

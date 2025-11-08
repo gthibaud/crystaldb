@@ -1,10 +1,5 @@
 import { Collection, Db, MongoClient } from "mongodb";
-import {
-    CrystalDatabaseAdapter,
-    StoredUnitDocument,
-    StoredUnitType,
-    UnitTypeDefinition,
-} from "../types";
+import { CrystalDatabaseAdapter, StoredUnitDocument, StoredUnitTypeDocument } from "../types";
 
 export interface MongoAdapterOptions {
     client: MongoClient;
@@ -19,14 +14,14 @@ const DEFAULT_UNIT_TYPE_COLLECTION = "unitTypes";
 export class MongoDatabaseAdapter implements CrystalDatabaseAdapter {
     private readonly db: Db;
     private readonly unitsCollection: Collection<StoredUnitDocument>;
-    private readonly unitTypesCollection: Collection<StoredUnitType>;
+    private readonly unitTypesCollection: Collection<StoredUnitTypeDocument>;
 
     constructor(options: MongoAdapterOptions) {
         this.db = options.client.db(options.dbName);
         this.unitsCollection = this.db.collection<StoredUnitDocument>(
             options.unitCollectionName ?? DEFAULT_UNIT_COLLECTION
         );
-        this.unitTypesCollection = this.db.collection<StoredUnitType>(
+        this.unitTypesCollection = this.db.collection<StoredUnitTypeDocument>(
             options.unitTypeCollectionName ?? DEFAULT_UNIT_TYPE_COLLECTION
         );
     }
@@ -34,36 +29,24 @@ export class MongoDatabaseAdapter implements CrystalDatabaseAdapter {
     async initialize(): Promise<void> {
         await Promise.all([
             this.unitTypesCollection.createIndex({ id: 1 }, { unique: true }),
+            this.unitTypesCollection.createIndex({ businessId: 1 }, { unique: true }),
             this.unitsCollection.createIndex({ id: 1 }, { unique: true }),
-            this.unitsCollection.createIndex({ type: 1 }),
+            this.unitsCollection.createIndex({ businessId: 1 }, { unique: true }),
+            this.unitsCollection.createIndex({ typeId: 1 }),
         ]);
     }
 
-    async upsertUnitType(definition: UnitTypeDefinition, now: Date): Promise<StoredUnitType> {
-        const update = {
-            $set: {
-                documentation: definition.documentation ?? {},
-                items: definition.items ?? [],
-                metadata: definition.metadata ?? {},
-                updatedAt: now,
-            },
-            $setOnInsert: {
-                id: definition.id,
-                createdAt: now,
-            },
-        };
-
-        await this.unitTypesCollection.updateOne({ id: definition.id }, update, { upsert: true });
-
-        const stored = await this.unitTypesCollection.findOne({ id: definition.id });
-        if (!stored) {
-            throw new Error(`Failed to persist unit type ${definition.id}`);
-        }
-
-        return stored;
+    async upsertUnitType(document: StoredUnitTypeDocument): Promise<void> {
+        await this.unitTypesCollection.replaceOne({ businessId: document.businessId }, document, {
+            upsert: true,
+        });
     }
 
-    async getUnitTypeById(id: string): Promise<StoredUnitType | null> {
+    async findUnitTypeByBusinessId(businessId: string): Promise<StoredUnitTypeDocument | null> {
+        return this.unitTypesCollection.findOne({ businessId });
+    }
+
+    async findUnitTypeById(id: string): Promise<StoredUnitTypeDocument | null> {
         return this.unitTypesCollection.findOne({ id });
     }
 
@@ -72,10 +55,16 @@ export class MongoDatabaseAdapter implements CrystalDatabaseAdapter {
     }
 
     async replaceUnit(doc: StoredUnitDocument): Promise<void> {
-        await this.unitsCollection.replaceOne({ id: doc.id }, doc);
+        await this.unitsCollection.replaceOne({ businessId: doc.businessId }, doc, {
+            upsert: true,
+        });
     }
 
-    async getUnitById(id: string): Promise<StoredUnitDocument | null> {
+    async findUnitByBusinessId(businessId: string): Promise<StoredUnitDocument | null> {
+        return this.unitsCollection.findOne({ businessId });
+    }
+
+    async findUnitById(id: string): Promise<StoredUnitDocument | null> {
         return this.unitsCollection.findOne({ id });
     }
 }
