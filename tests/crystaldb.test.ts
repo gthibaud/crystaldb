@@ -440,4 +440,72 @@ describe("CrystalDB", () => {
             })
         ).rejects.toThrow("Unit type missing-unit-type not found");
     });
+
+    it("supports inline unit type definitions for CRUD operations", async () => {
+        // Inline unit types never touch the database. They allow tests or applications
+        // to configure schemas directly in code while reusing the same serialization pipeline.
+        const crystal = await buildCrystalDB();
+        const inlineUnitType: UnitTypeDefinition = {
+            id: "unitType:inline",
+            documentation: {
+                name: "Inline",
+                description: "Inline configuration without persistence",
+            },
+            items: [
+                {
+                    id: "name",
+                    type: "string",
+                    documentation: {
+                        name: "Name",
+                        description: "Human readable name",
+                    },
+                },
+                {
+                    id: "count",
+                    type: "number",
+                    documentation: {
+                        name: "Count",
+                        description: "Numeric counter",
+                    },
+                },
+            ],
+        };
+
+        const created = await crystal.createInlineUnit(inlineUnitType, {
+            values: {
+                name: "Inline User",
+                count: 1,
+            },
+        });
+
+        expect(created.unitTypeId).toBe(inlineUnitType.id);
+        expect(created.values.name).toBe("Inline User");
+        expect(created.values.count).toBe(1);
+
+        const updated = await crystal.updateInlineUnit(inlineUnitType, created.id, {
+            values: { count: 2 },
+        });
+
+        expect(updated).not.toBeNull();
+        expect(updated?.values.count).toBe(2);
+        expect(updated?.values.name).toBe("Inline User");
+
+        const fetched = await crystal.getInlineUnitById(inlineUnitType, created.id);
+
+        expect(fetched).not.toBeNull();
+        expect(fetched?.values.name).toBe("Inline User");
+        expect(fetched?.values.count).toBe(2);
+
+        const db = client.db(databaseName);
+        const storedUnitType = await db
+            .collection("unitTypes")
+            .findOne({ businessId: inlineUnitType.id });
+        const storedUnit = await db.collection("units").findOne({ businessId: created.id });
+
+        expect(storedUnitType).toBeNull();
+        expect(storedUnit).not.toBeNull();
+        expect(storedUnit?.typeId).toBe(inlineUnitType.id);
+        expect(storedUnit?.values?.name).toBe("Inline User");
+        expect(storedUnit?.values?.count).toBe(2);
+    });
 });

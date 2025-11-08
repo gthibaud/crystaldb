@@ -1,5 +1,6 @@
 import { deserializeUnitValues, serializeUnitValues } from "./kinds";
 import {
+    CreateInlineUnitInput,
     CreateUnitInput,
     CrystalDBOptions,
     CrystalDatabaseAdapter,
@@ -25,23 +26,44 @@ const loadIdGenerator = async (): Promise<() => string> => {
     return cachedIdGenerator;
 };
 
+/**
+ * High-level entry point for interacting with CrystalDB unit types and units.
+ *
+ * The class exposes two complementary workflows:
+ * - **Database-backed definitions**: persist unit type schemas in the database and reference them by id.
+ * - **Inline definitions**: pass unit type schemas directly from code without storing them.
+ *
+ * Both approaches share serialization, validation, and adapter logic so teams can pick the model that fits.
+ */
 export class CrystalDB {
     private readonly adapter: CrystalDatabaseAdapter;
     private validationHandler?: ValidationHandler;
 
+    /**
+     * Instantiate CrystalDB with a storage adapter and optional validation handler.
+     */
     constructor(options: CrystalDBOptions) {
         this.adapter = options.adapter;
         this.validationHandler = options.validationHandler;
     }
 
+    /**
+     * Ensure the underlying adapter is ready (indexes, collections, etc.).
+     */
     async initialize(): Promise<void> {
         await this.adapter.initialize();
     }
 
+    /**
+     * Register or remove a validation handler executed before writes.
+     */
     setValidationHandler(handler: ValidationHandler | undefined): void {
         this.validationHandler = handler;
     }
 
+    /**
+     * Create or update a persisted unit type definition in the database.
+     */
     async upsertUnitType(definition: UnitTypeDefinition): Promise<StoredUnitType> {
         const existingDocument =
             (await this.adapter.findUnitTypeByBusinessId(definition.id)) ?? null;
@@ -82,11 +104,19 @@ export class CrystalDB {
         return this.mapUnitTypeDocumentToDomain(document);
     }
 
+    /**
+     * Retrieve a stored unit type definition by its business identifier.
+     */
     async getUnitTypeById(id: string): Promise<StoredUnitType | null> {
         const document = await this.adapter.findUnitTypeByBusinessId(id);
         return document ? this.mapUnitTypeDocumentToDomain(document) : null;
     }
 
+    /**
+     * Create a unit referencing a database-backed unit type.
+     *
+     * Requires the unit type to have been persisted through `upsertUnitType`.
+     */
     async createUnit(unit: CreateUnitInput): Promise<Unit> {
         const bundle = await this.getUnitTypeBundleByBusinessId(unit.unitTypeId);
 
@@ -115,6 +145,9 @@ export class CrystalDB {
         return domainUnit;
     }
 
+    /**
+     * Apply a patch to an existing unit referencing a database-backed unit type.
+     */
     async updateUnit(unitId: string, patch: UpdateUnitPatch): Promise<Unit | null> {
         const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
         if (!existingDoc) {
@@ -161,6 +194,9 @@ export class CrystalDB {
         return domainUnit;
     }
 
+    /**
+     * Retrieve a unit by its business identifier using the persisted unit type definition.
+     */
     async getUnitById(id: string): Promise<Unit | null> {
         const stored = await this.adapter.findUnitByBusinessId(id);
         if (!stored) {
@@ -169,6 +205,160 @@ export class CrystalDB {
 
         const bundle = await this.getUnitTypeBundleByTechnicalId(stored.typeId);
         return this.buildDomainUnit(bundle, stored);
+    }
+
+    /**
+     * Create a unit using an inline unit type definition without persisting the schema.
+     *
+     * Useful for tests or applications that prefer configuration in code rather than in the database.
+     */
+    async createInlineUnit(
+        definition: UnitTypeDefinition,
+        unit: CreateInlineUnitInput
+    ): Promise<Unit> {
+        const bundle = this.buildUnitTypeBundleFromDefinition(definition);
+
+        const unitId = await this.generateTechnicalId();
+        const businessId = await this.resolveBusinessId(unit.id);
+        const now = new Date();
+
+        const serializedValues = serializeUnitValues(bundle.domain, unit.values);
+        const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
+        const storedMetadata = this.serializeUnitMetadata(bundle, unit.metadata);
+
+        const storedDoc: StoredUnitDocument = {
+            id: unitId,
+            businessId,
+            typeId: bundle.document.id,
+            values: storedValues,
+            metadata: storedMetadata,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        const domainUnit = this.buildDomainUnit(bundle, storedDoc);
+        await this.runValidation("create", bundle.domain, domainUnit);
+
+        await this.adapter.insertUnit(storedDoc);
+        return domainUnit;
+    }
+
+    /**
+     * Update a unit using the provided inline unit type definition.
+     *
+     * Ensures the stored unit references the same definition id to avoid mismatches.
+     */
+    async updateInlineUnit(
+        definition: UnitTypeDefinition,
+        unitId: string,
+        patch: UpdateUnitPatch
+    ): Promise<Unit | null> {
+        const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
+        if (!existingDoc) {
+            return null;
+        }
+
+        if (existingDoc.typeId !== definition.id) {
+            throw new Error(
+                `Stored unit type "${existingDoc.typeId}" does not match inline definition "${definition.id}"`
+            );
+        }
+
+        const bundle = this.buildUnitTypeBundleFromDefinition(definition, existingDoc.typeId);
+        const existingDomain = this.buildDomainUnit(bundle, existingDoc);
+
+        const mergedValues = patch.values
+            ? {
+                ...existingDomain.values,
+                ...patch.values,
+            }
+            : existingDomain.values;
+
+        const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
+
+        const serializedValues = serializeUnitValues(bundle.domain, mergedValues, {
+            existingValues: baseValues,
+        });
+
+        const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
+        const mergedMetadata = patch.metadata
+            ? {
+                ...existingDomain.metadata,
+                ...patch.metadata,
+            }
+            : existingDomain.metadata;
+        const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
+
+        const updatedDoc: StoredUnitDocument = {
+            ...existingDoc,
+            values: storedValues,
+            metadata: storedMetadata,
+            updatedAt: new Date(),
+        };
+
+        const domainUnit = this.buildDomainUnit(bundle, updatedDoc);
+
+        await this.runValidation("update", bundle.domain, domainUnit);
+        await this.adapter.replaceUnit(updatedDoc);
+
+        return domainUnit;
+    }
+
+    /**
+     * Retrieve a unit using an inline unit type definition.
+     *
+     * Throws if the stored unit references a different definition id to guard against accidental misuse.
+     */
+    async getInlineUnitById(definition: UnitTypeDefinition, id: string): Promise<Unit | null> {
+        const stored = await this.adapter.findUnitByBusinessId(id);
+        if (!stored) {
+            return null;
+        }
+
+        if (stored.typeId !== definition.id) {
+            throw new Error(
+                `Stored unit type "${stored.typeId}" does not match inline definition "${definition.id}"`
+            );
+        }
+
+        const bundle = this.buildUnitTypeBundleFromDefinition(definition, stored.typeId);
+        return this.buildDomainUnit(bundle, stored);
+    }
+
+    private buildUnitTypeBundleFromDefinition(
+        definition: UnitTypeDefinition,
+        expectedId?: string
+    ): UnitTypeBundle {
+        if (expectedId && definition.id !== expectedId) {
+            throw new Error(
+                `Provided unit type definition id "${definition.id}" does not match expected id "${expectedId}"`
+            );
+        }
+
+        const timestamp = new Date();
+        const document: StoredUnitTypeDocument = {
+            id: definition.id,
+            businessId: definition.id,
+            documentation: definition.documentation,
+            items: definition.items.map((item) => ({
+                id: item.id,
+                businessId: item.id,
+                type: item.type,
+                documentation: item.documentation,
+                metadata: item.metadata,
+            })),
+            metadata: definition.metadata,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+        };
+
+        const domain = this.mapUnitTypeDocumentToDomain(document);
+
+        return {
+            document,
+            domain,
+            maps: this.buildItemMaps(document),
+        };
     }
 
     private async runValidation(

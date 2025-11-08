@@ -148,7 +148,21 @@ export interface UnitRecord {
     metadata?: UnitMetadata;
 }
 
-export type CreateUnitInput = Omit<UnitRecord, "id"> & { id?: string };
+/**
+ * Payload to create units referencing a persisted unit type.
+ *
+ * `unitTypeId` is required because the unit type lives in the database.
+ */
+export type CreateUnitInput = Omit<UnitRecord, "id"> & {
+    id?: string;
+};
+
+/**
+ * Payload to create units using inline unit type definitions.
+ *
+ * The definition is passed separately, so `unitTypeId` would be redundant.
+ */
+export type CreateInlineUnitInput = Omit<CreateUnitInput, "unitTypeId">;
 
 export interface UpdateUnitPatch {
     values?: UnitValues;
