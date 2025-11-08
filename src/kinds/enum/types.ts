@@ -4,3 +4,7 @@ export interface EnumValue extends Value {
     key: string;
     label?: string;
 }
+
+export interface EnumValueMetadata {
+    enumValues?: EnumValue[];
+}

@@ -9,3 +9,8 @@ export interface FileResource extends Value {
 }
 
 export type FilesValue = FileResource[];
+
+export interface FilesValueMetadata {
+    maxFiles?: number;
+    allowedFileExtensions?: string[];
+}

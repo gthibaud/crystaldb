@@ -28,7 +28,8 @@
   },
   "dependencies": {
     "gthibaud-uid": "^0.0.2",
-    "mongodb": "^6.20.0"
+    "mongodb": "^6.20.0",
+    "mongoose": "^8.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

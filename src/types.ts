@@ -1,15 +1,15 @@
 import type { DateValue } from "./kinds/date/types";
 import type { DateRangeValue } from "./kinds/dateRange/types";
-import type { DistanceValue } from "./kinds/distance/types";
-import type { EnumValue } from "./kinds/enum/types";
-import type { FilesValue } from "./kinds/files/types";
+import type { DistanceValue, DistanceValueMetadata } from "./kinds/distance/types";
+import type { EnumValue, EnumValueMetadata } from "./kinds/enum/types";
+import type { FilesValue, FilesValueMetadata } from "./kinds/files/types";
 import type { FormulaValue } from "./kinds/formula/types";
 import type { GeoAddressValue } from "./kinds/geoAddress/types";
 import type { IconValue } from "./kinds/icon/types";
 import type { MonthValue } from "./kinds/month/types";
 import type { NumberRangeValue } from "./kinds/numberRange/types";
 import type { PercentageValue } from "./kinds/percentage/types";
-import type { ReferenceValue } from "./kinds/reference/types";
+import type { ReferenceValue, ReferenceValueMetadata } from "./kinds/reference/types";
 
 export type { DateValue } from "./kinds/date/types";
 export type { DateRangeValue } from "./kinds/dateRange/types";
@@ -23,55 +23,72 @@ export type { MonthValue } from "./kinds/month/types";
 export type { NumberRangeValue } from "./kinds/numberRange/types";
 export type { PercentageValue } from "./kinds/percentage/types";
 export type { ReferenceValue } from "./kinds/reference/types";
+export { BUILT_IN_UNIT_TYPE_KINDS };
 
 export interface Value {
     metadata?: StatusAwareMetadata;
 }
 
-export type UnitTypeKind =
-    | "string"
-    | "markdown"
-    | "number"
-    | "numberRange"
-    | "boolean"
-    | "date"
-    | "month"
-    | "enum"
-    | "files"
-    | "formula"
-    | "dateRange"
-    | "distance"
-    | "icon"
-    | "percentage"
-    | "geoAddress"
-    | "reference";
+const BUILT_IN_UNIT_TYPE_KINDS = [
+    "string",
+    "markdown",
+    "number",
+    "numberRange",
+    "boolean",
+    "date",
+    "month",
+    "enum",
+    "files",
+    "formula",
+    "dateRange",
+    "distance",
+    "icon",
+    "percentage",
+    "geoAddress",
+    "reference",
+] as const;
 
-export interface DataItemStatusConfig {
-    default?: StatusDescriptor;
-    allowed?: Record<string, StatusDescriptor>;
-    allowCustom?: boolean;
-    propagateToUnit?: boolean;
-    blockers?: string[];
+export type BuiltInUnitTypeKind = (typeof BUILT_IN_UNIT_TYPE_KINDS)[number];
+
+export type UnitTypeKind = BuiltInUnitTypeKind | (string & {});
+
+export interface ValueKindMetadata
+    extends EnumValueMetadata,
+    ReferenceValueMetadata,
+    DistanceValueMetadata,
+    FilesValueMetadata,
+    Record<string, unknown> { }
+
+export interface DataItemStatusConfig extends Record<string, unknown> {
+    rules: "incomplete" | "valid" | "invalid" | "warning";
+    edition: "system" | "user";
 }
 
-export interface DataItemMetadataConfig extends Record<string, unknown> {
+export interface DataItemMetadataConfig extends ValueKindMetadata {
     required?: boolean;
     unique?: boolean;
     indexed?: boolean;
-    immutable?: boolean;
-    status?: DataItemStatusConfig;
-    auditTrail?: boolean;
-    visibility?: "public" | "private" | "restricted";
-    category?: string;
-    retentionDays?: number;
+    rulesIds?: string[];
+    calculation?: {
+        methodId: string;
+        parameters: string[];
+    };
+    createdAt?: boolean;
+    updatedAt?: boolean;
+    createdBy?: boolean;
+    updatedBy?: boolean;
+    // To discuss with the team:
+    // - immutable?: boolean;
+    // - status?: DataItemStatusConfig;
+    // - retentionDays?: number;
 }
 
 export interface DataItemType<TKind extends UnitTypeKind = UnitTypeKind> {
     id: string;
     type: TKind;
-    documentation?: DocumentationBlock;
-    description?: string;
+    documentation: DocumentationBlock;
     metadata?: DataItemMetadataConfig;
+    status?: DataItemStatusConfig;
 }
 
 export interface UnitTypeDefinition {
@@ -79,6 +96,12 @@ export interface UnitTypeDefinition {
     documentation: DocumentationBlock;
     items: DataItemType[];
     metadata?: UnitTypeMetadataConfig;
+    status?: UnitTypeStatusConfig;
+}
+
+export interface UnitTypeStatusConfig extends Record<string, unknown> {
+    rules: "incomplete" | "valid" | "invalid" | "warning";
+    edition: "system" | "user";
 }
 
 export interface UnitTypeMetadataConfig extends Record<string, unknown> {
@@ -93,17 +116,6 @@ export interface UnitTypeMetadataConfig extends Record<string, unknown> {
     allowDrafts?: boolean;
     softDelete?: boolean;
     retentionPolicyDays?: number;
-    statusCatalog?: Record<string, StatusDescriptor>;
-    defaultStatuses?: Record<string, StatusDescriptor>;
-    permissions?: {
-        read?: string[];
-        write?: string[];
-        admin?: string[];
-    };
-    notifications?: {
-        onStatusChange?: boolean;
-        onAssignment?: boolean;
-    };
 }
 
 export type UnitTypeMap = Record<string, DataItemType>;
@@ -116,7 +128,6 @@ export interface UnitMetadata extends StatusAwareMetadata {
     updatedAt?: string;
     updatedBy?: string;
     version?: number;
-    tags?: string[];
     retention?: {
         policy?: string;
         expiresAt?: string;
@@ -132,7 +143,7 @@ export interface UnitMetadata extends StatusAwareMetadata {
 
 export interface UnitRecord {
     id: string;
-    type: string;
+    unitTypeId: string;
     values: UnitValues;
     metadata?: UnitMetadata;
 }
@@ -217,6 +228,7 @@ export type UnitValue =
     | IconValue
     | GeoAddressValue
     | ReferenceValue
+    | Value
     | null;
 
 export type LocalizedString = string | Record<string, string>;

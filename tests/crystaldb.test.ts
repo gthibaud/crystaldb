@@ -15,11 +15,35 @@ jest.mock(
     { virtual: true }
 );
 
-import { CrystalDB, UnitTypeDefinition } from "../src";
+import { CrystalDB, UnitTypeDefinition, registerKind } from "../src";
 import { createMongoAdapter } from "../src/adapters/mongo";
 import type { GeoAddressValue } from "../src/kinds/geoAddress/types";
 import type { PercentageValue } from "../src/kinds/percentage/types";
 import type { ReferenceValue } from "../src/kinds/reference/types";
+
+const customJsonKind = "custom:json";
+
+registerKind(
+    customJsonKind,
+    {
+        serialize(value: unknown) {
+            if (value === null || value === undefined) {
+                return null;
+            }
+            return JSON.stringify(value);
+        },
+        deserialize(value: unknown) {
+            if (value === null || value === undefined) {
+                return null;
+            }
+            if (typeof value === "string") {
+                return JSON.parse(value);
+            }
+            return value;
+        },
+    },
+    { replace: true }
+);
 
 describe("CrystalDB", () => {
     let mongod: MongoMemoryServer;
@@ -202,6 +226,14 @@ describe("CrystalDB", () => {
                     description: "Reference to another user.",
                 },
             },
+            {
+                id: "customJson",
+                type: customJsonKind,
+                documentation: {
+                    name: "Custom JSON",
+                    description: "Custom kind registered at runtime.",
+                },
+            },
         ],
         metadata: {
             createdAt: true,
@@ -246,8 +278,6 @@ describe("CrystalDB", () => {
         await crystal.upsertUnitType(baseUnitType);
         const stored = await crystal.getUnitTypeById(baseUnitType.id);
 
-        console.log(JSON.stringify(stored, null, 2));
-
         expect(stored).not.toBeNull();
         expect(stored?.items).toHaveLength(baseUnitType.items.length);
         expect(stored?.createdAt).toBeInstanceOf(Date);
@@ -258,7 +288,7 @@ describe("CrystalDB", () => {
         await crystal.upsertUnitType(baseUnitType);
 
         const unit = await crystal.createUnit({
-            type: baseUnitType.id,
+            unitTypeId: baseUnitType.id,
             values: {
                 name: "John Doe",
                 bio: "# Heading",
@@ -286,13 +316,14 @@ describe("CrystalDB", () => {
                     unitId: "manager-123",
                     unitType: baseUnitType.id,
                 },
+                customJson: {
+                    payload: { foo: "bar" },
+                } as ReturnType<typeof JSON.parse>,
             },
             metadata: {
                 createdBy: "tester",
             },
         });
-
-        console.log(JSON.stringify(unit, null, 2));
 
         expect(unit.id).toBeDefined();
         expect(unit.values.name).toBe("John Doe");
@@ -301,6 +332,7 @@ describe("CrystalDB", () => {
         const progress = unit.values.progress as PercentageValue | null;
         const location = unit.values.location as GeoAddressValue | null;
         const manager = unit.values.manager as ReferenceValue | null;
+        const customJsonValue = unit.values.customJson as { payload: { foo: string } } | null;
         const vacation = unit.values.vacation as {
             start: { iso: string };
             end: { iso: string };
@@ -319,6 +351,7 @@ describe("CrystalDB", () => {
         expect(vacation?.start.iso).toBe("2024-08-01T00:00:00.000Z");
         expect((unit.values.commute as { value: number })?.value).toBeCloseTo(12.5);
         expect((unit.values.avatar as { name: string })?.name).toBe("user");
+        expect(customJsonValue?.payload.foo).toBe("bar");
 
         const db = client.db(databaseName);
         const storedUnit = await db.collection("units").findOne({ businessId: unit.id });
@@ -367,6 +400,7 @@ describe("CrystalDB", () => {
             unitId: "manager-123",
             unitType: baseUnitType.id,
         });
+        expect(() => JSON.parse(valueOf("customJson") as string)).not.toThrow();
 
         expect(Object.keys(storedUnit?.values ?? {})).not.toContain("name");
         expect(
@@ -383,7 +417,7 @@ describe("CrystalDB", () => {
 
         const unitType = await crystal.upsertUnitType(baseUnitType);
         const unit = await crystal.createUnit({
-            type: unitType.id,
+            unitTypeId: unitType.id,
             values: { name: "Alice", bio: "*hello*", age: 27 },
         });
 
@@ -401,7 +435,7 @@ describe("CrystalDB", () => {
 
         await expect(
             crystal.createUnit({
-                type: "missing-unit-type",
+                unitTypeId: "missing-unit-type",
                 values: {},
             })
         ).rejects.toThrow("Unit type missing-unit-type not found");

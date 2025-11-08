@@ -1,4 +1,5 @@
 import {
+    BUILT_IN_UNIT_TYPE_KINDS,
     UnitTypeDefinition,
     UnitTypeKind,
     UnitValue,
@@ -23,36 +24,61 @@ import * as percentageKind from "./percentage";
 import * as geoAddressKind from "./geoAddress";
 import * as referenceKind from "./reference";
 
-type Handler = {
-    serialize: (value: unknown) => unknown;
-    deserialize: (value: unknown) => unknown;
+export interface KindHandler {
+    serialize(value: unknown): unknown;
+    deserialize(value: unknown): unknown;
+}
+
+const kindRegistry = new Map<string, KindHandler>();
+
+export const registerKind = (
+    kind: UnitTypeKind,
+    handler: KindHandler,
+    options: { replace?: boolean } = {}
+): void => {
+    if (!options.replace && kindRegistry.has(kind)) {
+        throw new Error(`Kind "${kind}" is already registered`);
+    }
+    kindRegistry.set(kind, handler);
 };
 
-const handlers: Record<UnitTypeKind, Handler> = {
-    string: stringKind,
-    markdown: markdownKind,
-    number: numberKind,
-    numberRange: numberRangeKind,
-    boolean: booleanKind,
-    date: dateKind,
-    month: monthKind,
-    enum: enumKind,
-    files: filesKind,
-    formula: formulaKind,
-    dateRange: dateRangeKind,
-    distance: distanceKind,
-    icon: iconKind,
-    percentage: percentageKind,
-    geoAddress: geoAddressKind,
-    reference: referenceKind,
+export const getRegisteredKind = (kind: UnitTypeKind): KindHandler | undefined => {
+    return kindRegistry.get(kind);
 };
+
+const builtIns: Array<KindHandler & { kind: string }> = [
+    stringKind,
+    markdownKind,
+    numberKind,
+    numberRangeKind,
+    booleanKind,
+    dateKind,
+    monthKind,
+    enumKind,
+    filesKind,
+    formulaKind,
+    dateRangeKind,
+    distanceKind,
+    iconKind,
+    percentageKind,
+    geoAddressKind,
+    referenceKind,
+];
+
+BUILT_IN_UNIT_TYPE_KINDS.forEach((kindName) => {
+    const module = builtIns.find((handler) => handler.kind === kindName);
+    if (!module) {
+        throw new Error(`Missing module for built-in kind "${kindName}"`);
+    }
+    registerKind(kindName, module, { replace: true });
+});
 
 const buildItemsMap = (unitType: UnitTypeDefinition | StoredUnitType) => {
     return new Map(unitType.items.map((item) => [item.id, item]));
 };
 
 export const serializeValue = (kind: UnitTypeKind, value: UnitValue | undefined): unknown => {
-    const handler = handlers[kind];
+    const handler = getRegisteredKind(kind);
     if (!handler) {
         throw new Error(`No serializer configured for kind "${kind}"`);
     }
@@ -60,7 +86,7 @@ export const serializeValue = (kind: UnitTypeKind, value: UnitValue | undefined)
 };
 
 export const deserializeValue = (kind: UnitTypeKind, value: unknown): UnitValue => {
-    const handler = handlers[kind];
+    const handler = getRegisteredKind(kind);
     if (!handler) {
         throw new Error(`No deserializer configured for kind "${kind}"`);
     }

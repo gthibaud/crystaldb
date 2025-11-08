@@ -88,7 +88,7 @@ export class CrystalDB {
     }
 
     async createUnit(unit: CreateUnitInput): Promise<Unit> {
-        const bundle = await this.getUnitTypeBundleByBusinessId(unit.type);
+        const bundle = await this.getUnitTypeBundleByBusinessId(unit.unitTypeId);
 
         const unitId = await this.generateTechnicalId();
         const businessId = await this.resolveBusinessId(unit.id);
@@ -206,7 +206,7 @@ export class CrystalDB {
             items: document.items.map((item) => ({
                 id: item.businessId,
                 type: item.type,
-                documentation: item.documentation,
+                documentation: item.documentation ?? { name: {}, description: {} },
                 metadata: item.metadata,
             })),
             metadata: document.metadata,
@@ -354,7 +354,7 @@ export class CrystalDB {
 
         return {
             id: doc.businessId,
-            type: bundle.domain.id,
+            unitTypeId: bundle.domain.id,
             values: deserializedValues,
             metadata,
             createdAt: doc.createdAt,
