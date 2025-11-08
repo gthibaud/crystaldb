@@ -1,0 +1,52 @@
+{
+  "name": "crystaldb",
+  "version": "1.0.0",
+  "description": "TypeScript logic layer for MongoDB with CrystalDB concepts.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "clean": "rimraf dist",
+    "lint": "eslint \"{src,tests}/**/*.ts\"",
+    "format": "prettier --write \"{src,tests}/**/*.ts\"",
+    "test": "cross-env NODE_ENV=test jest --runInBand",
+    "test:watch": "cross-env NODE_ENV=test jest --watch"
+  },
+  "keywords": [
+    "crystaldb",
+    "mongodb",
+    "typescript",
+    "unit-types"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "dependencies": {
+    "gthibaud-uid": "^0.0.2",
+    "mongodb": "^6.20.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.3",
+    "@typescript-eslint/parser": "^8.46.3",
+    "cross-env": "^10.1.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^16.5.0",
+    "jest": "^30.2.0",
+    "mongodb-memory-server": "^10.3.0",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.1.0",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
