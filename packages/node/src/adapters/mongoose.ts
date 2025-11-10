@@ -8,7 +8,7 @@ import {
     StoredUnitDocument,
     StoredUnitTypeDocument,
     UnitListQuery,
-} from "../types";
+} from "@crystaldb/core";
 
 export interface MongooseAdapterOptions {
     connection: Connection;

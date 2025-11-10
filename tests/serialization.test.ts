@@ -3,8 +3,9 @@ import {
     deserializeUnitType,
     serializeUnit,
     serializeUnitType,
-} from "../src/serialization";
-import type { Unit, UnitTypeDefinition } from "../src/types";
+    type Unit,
+    type UnitTypeDefinition,
+} from "@crystaldb/core";
 
 const sampleUnitType: UnitTypeDefinition = {
     id: "unitType:user",
@@ -150,9 +151,8 @@ describe("serialization", () => {
             updatedAt: "2024-01-01T00:00:00.000Z",
         };
 
-        expect(() =>
-            deserializeUnit(serialized, sampleUnitType)
-        ).toThrow(/references mismatched unit type/);
+        expect(() => deserializeUnit(serialized, sampleUnitType)).toThrow(
+            /references mismatched unit type/
+        );
     });
 });
-

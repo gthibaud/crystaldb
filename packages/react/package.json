@@ -1,0 +1,21 @@
+{
+    "name": "@crystaldb/react",
+    "version": "0.1.0",
+    "description": "React bindings and components for CrystalDB (coming soon).",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "clean": "rimraf dist"
+    },
+    "license": "ISC",
+    "dependencies": {
+        "@crystaldb/core": "^1.0.0"
+    },
+    "peerDependencies": {
+        "react": "^18.0.0"
+    }
+}

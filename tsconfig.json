@@ -8,9 +8,18 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "baseUrl": ".",
+    "paths": {
+      "@crystaldb/core": ["packages/core/src"],
+      "@crystaldb/core/*": ["packages/core/src/*"],
+      "@crystaldb/node": ["packages/node/src"],
+      "@crystaldb/node/*": ["packages/node/src/*"],
+      "@crystaldb/react": ["packages/react/src"],
+      "@crystaldb/react/*": ["packages/react/src/*"]
+    }
   },
-  "include": ["src", "tests", "jest.config.ts"],
+  "include": ["packages/**/*.ts", "tests/**/*.ts", "jest.config.ts"],
   "ts-node": {
     "transpileOnly": true
   }

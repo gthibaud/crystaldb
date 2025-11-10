@@ -1,6 +1,12 @@
-# CrystalDB
+# CrystalDB Monorepo
 
-CrystalDB is a TypeScript library that wraps MongoDB with Crystalchain-specific concepts such as unit types and units. It relies on an externally managed `MongoClient` instance, stores unit types and units in dedicated collections within the same database, and provides hooks to run synchronous validation before write operations.
+CrystalDB now ships as a multi-package workspace so the same domain model can be reused across runtimes:
+
+- `@crystaldb/core` – shared types, kind registry, and serialization helpers suitable for any environment (including browsers and Go bindings).
+- `@crystaldb/node` – the runtime `CrystalDB` class plus Mongo/Mongoose adapters and validation hooks.
+- `@crystaldb/react` – placeholder for upcoming React display/editor components built on top of the core package.
+
+This layout keeps the cross-language contracts (types, serializers, validators) in a dependency-free package so they can be consumed from React, Go, or other ecosystems while the Node package continues to own persistence logic.
 
 ## Features
 
@@ -17,12 +23,19 @@ npm install
 npm run build
 ```
 
+You can also build individual packages:
+
+```bash
+npm run build --workspace @crystaldb/core
+npm run build --workspace @crystaldb/node
+```
+
 ## Scripts
 
-- `npm run build` — Compile the TypeScript sources into `dist/`.
+- `npm run build` — Compile every workspace into its `dist/` folder.
 - `npm test` — Execute the Jest test suite against an in-memory MongoDB instance.
-- `npm run lint` — Lint the project using ESLint.
-- `npm run format` — Apply Prettier formatting to `src/` and `tests/`.
+- `npm run lint` — Lint the workspace packages using ESLint.
+- `npm run format` — Apply Prettier formatting across `packages/` and `tests/`.
 
 ## Testing Strategy
 

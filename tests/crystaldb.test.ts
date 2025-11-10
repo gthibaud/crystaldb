@@ -15,11 +15,15 @@ jest.mock(
     { virtual: true }
 );
 
-import { CrystalDB, UnitTypeDefinition, registerKind } from "../src";
-import { createMongoAdapter } from "../src/adapters/mongo";
-import type { GeoAddressValue } from "../src/kinds/geoAddress/types";
-import type { PercentageValue } from "../src/kinds/percentage/types";
-import type { ReferenceValue } from "../src/kinds/reference/types";
+import {
+    UnitTypeDefinition,
+    registerKind,
+    type GeoAddressValue,
+    type PercentageValue,
+    type ReferenceValue,
+    type Unit,
+} from "@crystaldb/core";
+import { CrystalDB, createMongoAdapter } from "@crystaldb/node";
 
 const customJsonKind = "custom:json";
 
@@ -559,7 +563,7 @@ describe("CrystalDB", () => {
             },
         });
 
-        expect(ordered.map((unit) => unit.id)).toEqual(["user-3", "user-2", "user-1"]);
+        expect(ordered.map((unit: Unit) => unit.id)).toEqual(["user-3", "user-2", "user-1"]);
 
         const paginated = await crystal.listUnits(baseUnitType.id, {
             order: {

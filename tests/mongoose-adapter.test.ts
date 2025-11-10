@@ -1,5 +1,5 @@
-import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import mongoose from "mongoose";
 
 jest.mock(
     "gthibaud-uid",
@@ -16,9 +16,8 @@ jest.mock(
     { virtual: true }
 );
 
-import { CrystalDB } from "../src";
-import { createMongooseAdapter } from "../src/adapters/mongoose";
-import type { UnitTypeDefinition } from "../src/types";
+import type { UnitTypeDefinition } from "@crystaldb/core";
+import { CrystalDB, createMongooseAdapter } from "@crystaldb/node";
 
 describe("MongooseDatabaseAdapter", () => {
     let mongod: MongoMemoryServer;

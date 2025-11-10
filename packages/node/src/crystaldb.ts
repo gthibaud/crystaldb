@@ -1,5 +1,6 @@
-import { deserializeUnitValues, serializeUnitValues } from "./kinds";
 import {
+    deserializeUnitValues,
+    serializeUnitValues,
     CreateInlineUnitInput,
     CreateUnitInput,
     CrystalDBOptions,
@@ -15,7 +16,7 @@ import {
     UnitWriteOperation,
     UpdateUnitPatch,
     ValidationHandler,
-} from "./types";
+} from "@crystaldb/core";
 
 let cachedIdGenerator: (() => string) | null = null;
 
