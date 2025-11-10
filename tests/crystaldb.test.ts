@@ -561,6 +561,19 @@ describe("CrystalDB", () => {
             unregisterUnitTypeClass(baseUnitType.id);
         });
 
+        it("exposes inline definitions through helper APIs", async () => {
+            registerUnitTypeClass({
+                definition: baseUnitType,
+                ctor: UserUnitModel,
+            });
+
+            const crystal = await buildCrystalDB();
+
+            const inlineDefinitions = crystal.listInlineUnitTypes();
+            expect(inlineDefinitions).toContainEqual(baseUnitType);
+            expect(crystal.getInlineUnitTypeDefinition(baseUnitType.id)).toEqual(baseUnitType);
+        });
+
         it("creates and retrieves instances using a registered class", async () => {
             registerUnitTypeClass({
                 definition: baseUnitType,
@@ -630,23 +643,72 @@ describe("CrystalDB", () => {
             expect(listedInlineUsers[0]).toBeInstanceOf(UserUnitModel);
             expect(listedInlineUsers[0].name).toBe("Inline Alice");
         });
+
+        it("keeps serialization consistent between inline and dynamic flows", async () => {
+            registerUnitTypeClass({
+                definition: baseUnitType,
+                ctor: UserUnitModel,
+            });
+
+            const crystal = await buildCrystalDB();
+            await crystal.upsertUnitType(baseUnitType);
+
+            const inlineUser = new UserUnitModel();
+            inlineUser.id = "inline-user-1";
+            inlineUser.name = "Parity User";
+            inlineUser.age = 45;
+            inlineUser.metadata = { createdBy: "inline" };
+
+            await crystal.createUnit(inlineUser);
+
+            const dynamicUser = await crystal.dynamic.create({
+                id: "dynamic-user-1",
+                unitTypeId: baseUnitType.id,
+                values: {
+                    name: "Parity User",
+                    age: 45,
+                },
+                metadata: {
+                    createdBy: "inline",
+                },
+            });
+
+            expect(dynamicUser).toBeInstanceOf(UserUnitModel);
+            const fetchedDynamic = await crystal.dynamic.getById("inline-user-1");
+            expect(fetchedDynamic).toBeInstanceOf(UserUnitModel);
+
+            const listedDynamic = await crystal.dynamic.list(baseUnitType.id);
+            const inlineFromList = listedDynamic.find((entry) => entry.id === "inline-user-1");
+            expect(inlineFromList).toBeInstanceOf(UserUnitModel);
+
+            const db = client.db(databaseName);
+            const unitsCollection = db.collection("units");
+            const inlineDoc = await unitsCollection.findOne({ businessId: "inline-user-1" });
+            const dynamicDoc = await unitsCollection.findOne({ businessId: "dynamic-user-1" });
+
+            expect(inlineDoc).not.toBeNull();
+            expect(dynamicDoc).not.toBeNull();
+
+            expect(inlineDoc?.values).toEqual(dynamicDoc?.values);
+            expect(inlineDoc?.metadata).toEqual(dynamicDoc?.metadata);
+        });
     });
 
     it("lists units with filters, sorting, and pagination", async () => {
         const crystal = await buildCrystalDB();
         await crystal.upsertUnitType(baseUnitType);
 
-        await crystal.createUnit({
+        await crystal.dynamic.create({
             id: "user-1",
             unitTypeId: baseUnitType.id,
             values: { name: "Alice" },
         });
-        await crystal.createUnit({
+        await crystal.dynamic.create({
             id: "user-2",
             unitTypeId: baseUnitType.id,
             values: { name: "Bob" },
         });
-        await crystal.createUnit({
+        await crystal.dynamic.create({
             id: "user-3",
             unitTypeId: baseUnitType.id,
             values: { name: "Charlie" },

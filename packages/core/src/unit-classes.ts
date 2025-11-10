@@ -74,6 +74,7 @@ const bindingByConstructor = new WeakMap<
     UnitClassConstructor<unknown>,
     UnitClassBinding<unknown>
 >();
+const inlineDefinitions = new Map<string, UnitTypeDefinition>();
 
 const globalStructuredClone: (<T>(value: T) => T) | undefined = (() => {
     const candidate = (globalThis as { structuredClone?: <T>(value: T) => T }).structuredClone;
@@ -90,6 +91,18 @@ const cloneDeep = <T>(value: T): T => {
     }
 
     return JSON.parse(JSON.stringify(value)) as T;
+};
+
+const cloneDefinition = (definition: UnitTypeDefinition): UnitTypeDefinition => {
+    return cloneDeep(definition);
+};
+
+const setInlineDefinition = (definition: UnitTypeDefinition): void => {
+    inlineDefinitions.set(definition.id, cloneDefinition(definition));
+};
+
+const deleteInlineDefinition = (unitTypeId: string): void => {
+    inlineDefinitions.delete(unitTypeId);
 };
 
 const ensureValuesCollection = <TInstance, TValues extends UnitValues>(
@@ -325,6 +338,7 @@ export const registerUnitTypeClass = <TInstance, TValues extends UnitValues = Un
     bindingByUnitType.set(options.definition.id, binding);
     bindingByConstructor.set(options.ctor, binding);
     markPrototypeWithBinding(options.ctor.prototype, binding);
+    setInlineDefinition(options.definition);
 
     if (options.defineProperties !== false) {
         defineValueProperties(options.ctor.prototype, binding);
@@ -339,6 +353,7 @@ export const unregisterUnitTypeClass = (unitTypeId: string): void => {
 
     bindingByUnitType.delete(unitTypeId);
     bindingByConstructor.delete(binding.ctor);
+    deleteInlineDefinition(unitTypeId);
 };
 
 export const getRegisteredUnitTypeClassById = (
@@ -406,6 +421,34 @@ export const getUnitTypeDefinitionForClass = <TInstance>(
 ): UnitTypeDefinition | undefined => {
     const binding = getRegisteredUnitTypeClassByConstructor(ctor);
     return binding?.definition;
+};
+
+export const getInlineUnitTypeDefinition = (unitTypeId: string): UnitTypeDefinition | undefined => {
+    const definition = inlineDefinitions.get(unitTypeId);
+    return definition ? cloneDefinition(definition) : undefined;
+};
+
+export const listInlineUnitTypeDefinitions = (): UnitTypeDefinition[] => {
+    return Array.from(inlineDefinitions.values(), (definition) => cloneDefinition(definition));
+};
+
+export const materializeInlineInstance = <TInstance>(
+    unit: Unit,
+    ctor: UnitClassConstructor<TInstance>
+): TInstance => {
+    const binding = getRegisteredUnitTypeClassByConstructor(ctor);
+    if (!binding) {
+        throw new Error(
+            `Constructor "${ctor.name ?? "anonymous"}" is not registered for any inline unit type`
+        );
+    }
+    if (unit.unitTypeId !== binding.definition.id) {
+        throw new Error(
+            `Unit type "${unit.unitTypeId}" does not match registered constructor "${binding.definition.id}"`
+        );
+    }
+
+    return binding.instantiate(unit);
 };
 
 export type { UnitClassConstructor };

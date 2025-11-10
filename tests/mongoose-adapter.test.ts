@@ -80,7 +80,7 @@ describe("MongooseDatabaseAdapter", () => {
         expect(storedUnitType.id).toBe(unitTypeDefinition.id);
         expect(storedUnitType.items).toHaveLength(unitTypeDefinition.items.length);
 
-        const createdUnitResult = await crystalDb.createUnit({
+        const createdUnitResult = await crystalDb.dynamic.create({
             unitTypeId: unitTypeDefinition.id,
             values: {
                 name: "Alice",
@@ -93,7 +93,7 @@ describe("MongooseDatabaseAdapter", () => {
         expect(createdUnit.values.name).toBe("Alice");
         expect(createdUnit.values.score).toBe(42);
 
-        const updatedUnitResult = await crystalDb.updateUnit(createdUnit.id, {
+        const updatedUnitResult = await crystalDb.dynamic.update(createdUnit.id, {
             values: { score: 84 },
         });
         const updatedUnit = updatedUnitResult as unknown as Unit | null;
@@ -102,7 +102,7 @@ describe("MongooseDatabaseAdapter", () => {
         expect(updatedUnit?.values.name).toBe("Alice");
         expect(updatedUnit?.values.score).toBe(84);
 
-        const fetchedResult = await crystalDb.getUnitById(createdUnit.id);
+        const fetchedResult = await crystalDb.dynamic.getById(createdUnit.id);
         const fetched = fetchedResult as unknown as Unit | null;
         expect(fetched).not.toBeNull();
         expect(fetched?.values.score).toBe(84);
@@ -111,7 +111,7 @@ describe("MongooseDatabaseAdapter", () => {
         expect(sameType).not.toBeNull();
         expect(sameType?.items).toHaveLength(unitTypeDefinition.items.length);
 
-        const listedUnitsResult = await crystalDb.listUnits(unitTypeDefinition.id, {
+        const listedUnitsResult = await crystalDb.dynamic.list(unitTypeDefinition.id, {
             filters: {
                 businessId: { value: createdUnit.id },
             },
