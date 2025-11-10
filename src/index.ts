@@ -9,5 +9,6 @@ export {
     serializeUnitValues,
     serializeValue
 } from "./kinds";
+export * from "./serialization";
 export * from "./types";
 
