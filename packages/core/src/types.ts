@@ -54,10 +54,10 @@ export type UnitTypeKind = BuiltInUnitTypeKind | (string & {});
 
 export interface ValueKindMetadata
     extends EnumValueMetadata,
-    ReferenceValueMetadata,
-    DistanceValueMetadata,
-    FilesValueMetadata,
-    Record<string, unknown> { }
+        ReferenceValueMetadata,
+        DistanceValueMetadata,
+        FilesValueMetadata,
+        Record<string, unknown> {}
 
 export interface DataItemStatusConfig extends Record<string, unknown> {
     rules: "incomplete" | "valid" | "invalid" | "warning";

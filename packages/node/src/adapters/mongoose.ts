@@ -119,7 +119,11 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
         const unitTypeModelName = `CrystalUnitType_${unitTypeCollectionName}`;
 
         this.unitModel = getOrCreateModel(options.connection, unitModelName, unitSchema);
-        this.unitTypeModel = getOrCreateModel(options.connection, unitTypeModelName, unitTypeSchema);
+        this.unitTypeModel = getOrCreateModel(
+            options.connection,
+            unitTypeModelName,
+            unitTypeSchema
+        );
     }
 
     async initialize(): Promise<void> {
@@ -132,9 +136,7 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
         });
     }
 
-    async findUnitTypeByBusinessId(
-        businessId: string
-    ): Promise<StoredUnitTypeDocument | null> {
+    async findUnitTypeByBusinessId(businessId: string): Promise<StoredUnitTypeDocument | null> {
         return this.unitTypeModel.findOne({ businessId }).lean<StoredUnitTypeDocument>().exec();
     }
 
@@ -196,11 +198,7 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
 
         if (query.search && query.search.trim().length > 0) {
             const regex = new RegExp(query.search.trim(), "i");
-            filter.$or = [
-                ...(filter.$or ?? []),
-                { businessId: regex },
-                { id: regex },
-            ];
+            filter.$or = [...(filter.$or ?? []), { businessId: regex }, { id: regex }];
         }
 
         return filter;
@@ -228,9 +226,7 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
         };
     }
 
-    private buildSort(
-        order: UnitListQuery["order"]
-    ): Record<string, 1 | -1> | undefined {
+    private buildSort(order: UnitListQuery["order"]): Record<string, 1 | -1> | undefined {
         if (!order || Object.keys(order).length === 0) {
             return undefined;
         }
@@ -271,4 +267,3 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
 export const createMongooseAdapter = (options: MongooseAdapterOptions): MongooseDatabaseAdapter => {
     return new MongooseDatabaseAdapter(options);
 };
-

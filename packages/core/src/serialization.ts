@@ -37,10 +37,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertRecord(
-    value: unknown,
-    message: string
-): asserts value is Record<string, unknown> {
+function assertRecord(value: unknown, message: string): asserts value is Record<string, unknown> {
     if (!isRecord(value)) {
         throw new Error(message);
     }
@@ -200,7 +197,9 @@ const cloneJson = <T>(value: T): T => {
     return JSON.parse(JSON.stringify(value)) as T;
 };
 
-export const serializeUnitType = (unitType: UnitTypeDefinition | StoredUnitType): SerializedUnitType => {
+export const serializeUnitType = (
+    unitType: UnitTypeDefinition | StoredUnitType
+): SerializedUnitType => {
     const items = unitType.items.map((item) => ({
         id: item.id,
         type: item.type,
@@ -215,12 +214,14 @@ export const serializeUnitType = (unitType: UnitTypeDefinition | StoredUnitType)
         items,
         metadata: cloneJson(unitType.metadata),
         status: cloneJson(unitType.status),
-        createdAt: "createdAt" in unitType && unitType.createdAt
-            ? unitType.createdAt.toISOString()
-            : undefined,
-        updatedAt: "updatedAt" in unitType && unitType.updatedAt
-            ? unitType.updatedAt.toISOString()
-            : undefined,
+        createdAt:
+            "createdAt" in unitType && unitType.createdAt
+                ? unitType.createdAt.toISOString()
+                : undefined,
+        updatedAt:
+            "updatedAt" in unitType && unitType.updatedAt
+                ? unitType.updatedAt.toISOString()
+                : undefined,
     };
 
     return serialized;
@@ -285,10 +286,7 @@ export const serializeUnit = (unit: Unit, unitType: UnitTypeDefinition): Seriali
     };
 };
 
-const validateUnitValues = (
-    unitType: UnitTypeDefinition,
-    values: Record<string, unknown>
-) => {
+const validateUnitValues = (unitType: UnitTypeDefinition, values: Record<string, unknown>) => {
     const itemIds = new Set(unitType.items.map((item) => item.id));
 
     for (const key of Object.keys(values)) {
@@ -339,10 +337,7 @@ const validateUnitMetadata = (
     return cloneJson(metadata);
 };
 
-export const deserializeUnit = (
-    payload: unknown,
-    unitType: UnitTypeDefinition
-): Unit => {
+export const deserializeUnit = (payload: unknown, unitType: UnitTypeDefinition): Unit => {
     assertRecord(payload, "Unit payload must be an object");
     const record = payload as Record<string, unknown>;
 
@@ -390,4 +385,3 @@ export const deserializeInlineUnit = (
         metadata: unit.metadata,
     };
 };
-

@@ -1,12 +1,12 @@
-import { Collection, Db, Filter, MongoClient } from "mongodb";
 import {
-    CrystalDatabaseAdapter,
     QueryFilterValue,
     QueryProjection,
     StoredUnitDocument,
     StoredUnitTypeDocument,
     UnitListQuery,
+    type CrystalDatabaseAdapter,
 } from "@crystaldb/core";
+import { Collection, Db, Filter, MongoClient } from "mongodb";
 
 export interface MongoAdapterOptions {
     client: MongoClient;
@@ -111,11 +111,7 @@ export class MongoDatabaseAdapter implements CrystalDatabaseAdapter {
 
         if (query.search && query.search.trim().length > 0) {
             const regex = new RegExp(query.search.trim(), "i");
-            filter.$or = [
-                ...(filter.$or ?? []),
-                { businessId: regex },
-                { id: regex },
-            ];
+            filter.$or = [...(filter.$or ?? []), { businessId: regex }, { id: regex }];
         }
 
         return filter;
@@ -143,9 +139,7 @@ export class MongoDatabaseAdapter implements CrystalDatabaseAdapter {
         };
     }
 
-    private buildSort(
-        order: UnitListQuery["order"]
-    ): Record<string, 1 | -1> | undefined {
+    private buildSort(order: UnitListQuery["order"]): Record<string, 1 | -1> | undefined {
         if (!order || Object.keys(order).length === 0) {
             return undefined;
         }

@@ -118,4 +118,3 @@ describe("MongooseDatabaseAdapter", () => {
         expect(listedUnits[0]?.id).toBe(createdUnit.id);
     });
 });
-
