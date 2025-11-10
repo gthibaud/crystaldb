@@ -1,8 +1,14 @@
 import {
+    deserializeCreateInlineUnitInput,
+    deserializeCreateUnitInput,
     deserializeUnit,
     deserializeUnitType,
+    serializeCreateInlineUnitInput,
+    serializeCreateUnitInput,
     serializeUnit,
     serializeUnitType,
+    type CreateInlineUnitInput,
+    type CreateUnitInput,
     type Unit,
     type UnitTypeDefinition,
 } from "@crystaldb/core";
@@ -154,5 +160,85 @@ describe("serialization", () => {
         expect(() => deserializeUnit(serialized, sampleUnitType)).toThrow(
             /references mismatched unit type/
         );
+    });
+
+    it("serializes create unit payloads without enforcing ids", () => {
+        const input: CreateUnitInput = {
+            unitTypeId: sampleUnitType.id,
+            values: {
+                name: "Alice",
+                age: 30,
+            },
+        };
+
+        const serialized = serializeCreateUnitInput(input, sampleUnitType);
+        expect(serialized).toMatchObject({
+            unitTypeId: sampleUnitType.id,
+            values: {
+                name: "Alice",
+                age: 30,
+            },
+        });
+        expect(serialized.id).toBeUndefined();
+
+        const deserialized = deserializeCreateUnitInput(serialized, sampleUnitType);
+        expect(deserialized).toEqual({
+            unitTypeId: sampleUnitType.id,
+            values: {
+                name: "Alice",
+                age: 30,
+            },
+            metadata: undefined,
+            id: undefined,
+        });
+    });
+
+    it("serializes create inline unit payloads and preserves optional id", () => {
+        const input: CreateInlineUnitInput = {
+            id: "custom-id",
+            values: {
+                name: "Bob",
+            },
+            metadata: {
+                createdBy: "author",
+            },
+        };
+
+        const serialized = serializeCreateInlineUnitInput(input, sampleUnitType);
+        expect(serialized).toMatchObject({
+            id: "custom-id",
+            metadata: {
+                createdBy: "author",
+            },
+        });
+        expect(serialized.values).toEqual({
+            name: "Bob",
+        });
+
+        const deserialized = deserializeCreateInlineUnitInput(serialized, sampleUnitType);
+        expect(deserialized).toEqual({
+            id: "custom-id",
+            values: {
+                name: "Bob",
+                age: null,
+            },
+            metadata: {
+                createdBy: "author",
+            },
+        });
+    });
+
+    it("validates mismatching unit type on create payload deserialization", () => {
+        expect(() =>
+            deserializeCreateUnitInput(
+                {
+                    unitTypeId: "other",
+                    values: {
+                        name: "Charlie",
+                    },
+                },
+                sampleUnitType
+            )
+        ).toThrow(/targets "other"/);
     });
 });

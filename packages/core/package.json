@@ -1,6 +1,6 @@
 {
     "name": "@crystaldb/core",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "description": "Core data model, serialization, and kind registry for CrystalDB.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",

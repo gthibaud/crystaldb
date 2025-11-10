@@ -1,6 +1,6 @@
 {
     "name": "@crystaldb/node",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "description": "Node.js CrystalDB runtime with database adapters.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
     },
     "license": "ISC",
     "dependencies": {
-        "@crystaldb/core": "^1.0.0",
+        "@crystaldb/core": "^1.0.3",
         "gthibaud-uid": "^0.0.2",
         "mongodb": "^6.20.0",
         "mongoose": "^8.8.2"

@@ -1,17 +1,18 @@
+import { deserializeUnitValues, serializeUnitValues } from "./kinds";
 import {
     CreateInlineUnitInput,
+    CreateUnitInput,
     DataItemMetadataConfig,
     DataItemStatusConfig,
     DocumentationBlock,
+    StoredUnitType,
     Unit,
     UnitMetadata,
     UnitTypeDefinition,
+    UnitTypeKind,
     UnitTypeMetadataConfig,
     UnitTypeStatusConfig,
-    UnitTypeKind,
-    StoredUnitType,
 } from "./types";
-import { deserializeUnitValues, serializeUnitValues } from "./kinds";
 
 export interface SerializedUnitType extends UnitTypeDefinition {
     createdAt?: string;
@@ -25,6 +26,19 @@ export interface SerializedUnit {
     metadata?: UnitMetadata;
     createdAt?: string;
     updatedAt?: string;
+}
+
+export interface SerializedCreateUnit {
+    unitTypeId: string;
+    values: Record<string, unknown>;
+    metadata?: UnitMetadata;
+    id?: string;
+}
+
+export interface SerializedCreateInlineUnit {
+    values: Record<string, unknown>;
+    metadata?: UnitMetadata;
+    id?: string;
 }
 
 export interface DeserializedUnitTypeResult {
@@ -286,6 +300,49 @@ export const serializeUnit = (unit: Unit, unitType: UnitTypeDefinition): Seriali
     };
 };
 
+export const serializeCreateUnitInput = (
+    unit: CreateUnitInput,
+    unitType: UnitTypeDefinition
+): SerializedCreateUnit => {
+    if (unit.unitTypeId !== unitType.id) {
+        throw new Error(
+            `Create payload targets unit type "${unit.unitTypeId}" but definition "${unitType.id}" was provided`
+        );
+    }
+
+    const values = serializeUnitValues(unitType, unit.values);
+
+    const serialized: SerializedCreateUnit = {
+        unitTypeId: unit.unitTypeId,
+        values: cloneJson(values),
+        metadata: cloneJson(unit.metadata),
+    };
+
+    if (unit.id) {
+        serialized.id = unit.id;
+    }
+
+    return serialized;
+};
+
+export const serializeCreateInlineUnitInput = (
+    unit: CreateInlineUnitInput,
+    unitType: UnitTypeDefinition
+): SerializedCreateInlineUnit => {
+    const values = serializeUnitValues(unitType, unit.values);
+
+    const serialized: SerializedCreateInlineUnit = {
+        values: cloneJson(values),
+        metadata: cloneJson(unit.metadata),
+    };
+
+    if (unit.id) {
+        serialized.id = unit.id;
+    }
+
+    return serialized;
+};
+
 const validateUnitValues = (unitType: UnitTypeDefinition, values: Record<string, unknown>) => {
     const itemIds = new Set(unitType.items.map((item) => item.id));
 
@@ -371,6 +428,78 @@ export const deserializeUnit = (payload: unknown, unitType: UnitTypeDefinition):
         metadata,
         createdAt,
         updatedAt,
+    };
+};
+
+export const deserializeCreateUnitInput = (
+    payload: unknown,
+    unitType: UnitTypeDefinition
+): CreateUnitInput => {
+    assertRecord(payload, "Create unit payload must be an object");
+    const record = payload as Record<string, unknown>;
+
+    const unitTypeId = record.unitTypeId;
+    if (typeof unitTypeId !== "string" || unitTypeId.length === 0) {
+        throw new Error("Create unit payload must include a non-empty unitTypeId");
+    }
+
+    if (unitTypeId !== unitType.id) {
+        throw new Error(
+            `Create unit payload targets "${unitTypeId}" but definition "${unitType.id}" was provided`
+        );
+    }
+
+    const rawId = record.id;
+    if (rawId !== undefined && (typeof rawId !== "string" || rawId.length === 0)) {
+        throw new Error("Create unit payload id must be a non-empty string when provided");
+    }
+
+    const rawValues = record.values;
+    let valuesRecord: Record<string, unknown>;
+    if (rawValues === undefined) {
+        valuesRecord = {};
+    } else {
+        assertRecord(rawValues, "Create unit values must be an object");
+        valuesRecord = rawValues;
+    }
+    const values = validateUnitValues(unitType, valuesRecord);
+    const metadata = validateUnitMetadata(unitType, record.metadata as UnitMetadata | undefined);
+
+    return {
+        unitTypeId,
+        id: rawId as string | undefined,
+        values,
+        metadata,
+    };
+};
+
+export const deserializeCreateInlineUnitInput = (
+    payload: unknown,
+    unitType: UnitTypeDefinition
+): CreateInlineUnitInput => {
+    assertRecord(payload, "Create inline unit payload must be an object");
+    const record = payload as Record<string, unknown>;
+
+    const rawId = record.id;
+    if (rawId !== undefined && (typeof rawId !== "string" || rawId.length === 0)) {
+        throw new Error("Create inline unit payload id must be a non-empty string when provided");
+    }
+
+    const rawValues = record.values;
+    let valuesRecord: Record<string, unknown>;
+    if (rawValues === undefined) {
+        valuesRecord = {};
+    } else {
+        assertRecord(rawValues, "Create inline unit values must be an object");
+        valuesRecord = rawValues;
+    }
+    const values = validateUnitValues(unitType, valuesRecord);
+    const metadata = validateUnitMetadata(unitType, record.metadata as UnitMetadata | undefined);
+
+    return {
+        id: rawId as string | undefined,
+        values,
+        metadata,
     };
 };
 

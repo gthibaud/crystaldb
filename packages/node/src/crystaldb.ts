@@ -40,11 +40,40 @@ const loadIdGenerator = async (): Promise<() => string> => {
 
 type DomainUnit = Unit | UnitClassInstance;
 
-interface CrystalDBDynamicNamespace {
+/**
+ * Programmatic surface for CrystalDB's database-backed (dynamic) workflow.
+ *
+ * All methods mirror the inline-first ones available directly on `CrystalDB`, but operate
+ * directly on stored unit type definitions instead of relying on registered classes.
+ */
+export interface CrystalDBDynamicNamespace {
+    /**
+     * Create or update a unit type definition inside the connected persistent store.
+     *
+     * Use this when you want schemas to be authorable by end users or admin tools rather than
+     * defined exclusively in code through `registerUnitTypeClass`.
+     */
     upsertUnitType(definition: UnitTypeDefinition): Promise<StoredUnitType>;
+
+    /**
+     * Create a unit that references a persisted unit type definition.
+     */
     create(unit: CreateUnitInput): Promise<DomainUnit>;
+
+    /**
+     * Apply a partial update to a stored unit while keeping serialization and validation consistent.
+     */
     update(unitId: string, patch: UpdateUnitPatch): Promise<DomainUnit | null>;
+
+    /**
+     * Retrieve a stored unit by its business identifier.
+     */
     getById(id: string): Promise<DomainUnit | null>;
+
+    /**
+     * List stored units for the given unit type identifier, delegating filtering and pagination
+     * to the configured adapter.
+     */
     list(
         unitTypeId: string,
         options?: UnitListOptions,
@@ -53,11 +82,11 @@ interface CrystalDBDynamicNamespace {
 }
 
 /**
- * High-level entry point for working with CrystalDB units using inline TypeScript bindings by default.
+ * High-level entry point for CrystalDB's inline-first developer workflow.
  *
- * Inline workflows use registered classes to model unit types directly in code. The `dynamic`
- * namespace exposes the database-backed workflow for teams that persist unit type definitions.
- * Both approaches share serialization, validation, and adapter logic so you can mix and match.
+ * Register unit classes with `registerUnitTypeClass`, then use this facade to create, list, or
+ * update units while automatically materializing strongly typed instances. Access the `dynamic`
+ * namespace to keep database-authored schemas working without duplicating serialization logic.
  */
 export class CrystalDB {
     private readonly adapter: CrystalDatabaseAdapter;
@@ -65,7 +94,10 @@ export class CrystalDB {
     readonly dynamic: CrystalDBDynamicNamespace;
 
     /**
-     * Instantiate CrystalDB with a storage adapter and optional validation handler.
+     * Instantiate CrystalDB with the desired persistence adapter and optional validation handler.
+     *
+     * @param options.adapter Implementation responsible for storage (Mongo, Mongoose, …).
+     * @param options.validationHandler Hook invoked before writes to enforce custom rules.
      */
     constructor(options: CrystalDBOptions) {
         this.adapter = options.adapter;
@@ -81,7 +113,7 @@ export class CrystalDB {
     }
 
     /**
-     * Ensure the underlying adapter is ready (indexes, collections, etc.).
+     * Ensure the underlying adapter is fully initialized (indexes, collections, etc.).
      */
     async initialize(): Promise<void> {
         await this.adapter.initialize();
@@ -95,21 +127,26 @@ export class CrystalDB {
     }
 
     /**
-     * Access the inline unit type definition registered for the provided business id.
+     * Access the inline unit type definition registered for the provided business identifier.
+     *
+     * @returns A deep clone of the registered definition, or `undefined` if it is not registered.
      */
     getInlineUnitTypeDefinition(unitTypeId: string): UnitTypeDefinition | undefined {
         return getInlineDefinition(unitTypeId);
     }
 
     /**
-     * List all inline unit type definitions registered in the current process.
+     * List every inline unit type definition that has been registered within the current process.
+     *
+     * Useful when building admin tooling that wants to display the available inline schemas.
      */
     listInlineUnitTypes(): UnitTypeDefinition[] {
         return listInlineDefinitions();
     }
 
     /**
-     * Materialize a unit into a registered inline class constructor, ensuring type safety.
+     * Materialize a unit into the provided inline class constructor, throwing if the constructor
+     * is not registered for the unit type.
      */
     materializeInlineInstance<TInstance extends UnitClassInstance>(
         unit: Unit,
@@ -119,7 +156,9 @@ export class CrystalDB {
     }
 
     /**
-     * Create or update a persisted unit type definition in the database.
+     * Create or update a unit type definition in the database.
+     *
+     * Inline classes can stay in sync by registering the same definition through `registerUnitTypeClass`.
      */
     async upsertUnitType(definition: UnitTypeDefinition): Promise<StoredUnitType> {
         const existingDocument =
@@ -162,7 +201,7 @@ export class CrystalDB {
     }
 
     /**
-     * Retrieve a stored unit type definition by its business identifier.
+     * Retrieve the persisted unit type definition for the given business identifier.
      */
     async getUnitTypeById(id: string): Promise<StoredUnitType | null> {
         const document = await this.adapter.findUnitTypeByBusinessId(id);
@@ -230,6 +269,9 @@ export class CrystalDB {
 
     /**
      * Apply a patch to an existing unit referencing a database-backed unit type.
+     *
+     * For inline instances created from registered classes, call `createUnit` with the instance again
+     * and the helper will handle extraction and updates for you.
      */
     async updateUnit(unitId: string, patch: UpdateUnitPatch): Promise<DomainUnit | null> {
         const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
@@ -242,9 +284,9 @@ export class CrystalDB {
 
         const mergedValues = patch.values
             ? {
-                ...existingDomain.values,
-                ...patch.values,
-            }
+                  ...existingDomain.values,
+                  ...patch.values,
+              }
             : existingDomain.values;
 
         const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
@@ -256,9 +298,9 @@ export class CrystalDB {
         const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
         const mergedMetadata = patch.metadata
             ? {
-                ...existingDomain.metadata,
-                ...patch.metadata,
-            }
+                  ...existingDomain.metadata,
+                  ...patch.metadata,
+              }
             : existingDomain.metadata;
         const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
 
@@ -278,9 +320,10 @@ export class CrystalDB {
     }
 
     /**
-     * Retrieve a unit by id, returning inline class instances when a constructor is supplied.
+     * Retrieve a unit by id.
      *
-     * Calls that only provide the id are forwarded to `dynamic.getById`.
+     * When a registered constructor is supplied, the returned value is an instance of that class.
+     * When only the id is provided, the call is forwarded to `dynamic.getById`.
      */
     async getUnitById(id: string): Promise<DomainUnit | null>;
     async getUnitById<TInstance extends UnitClassInstance>(
@@ -545,9 +588,9 @@ export class CrystalDB {
 
         const mergedValues = patch.values
             ? {
-                ...existingDomain.values,
-                ...patch.values,
-            }
+                  ...existingDomain.values,
+                  ...patch.values,
+              }
             : existingDomain.values;
 
         const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
@@ -559,9 +602,9 @@ export class CrystalDB {
         const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
         const mergedMetadata = patch.metadata
             ? {
-                ...existingDomain.metadata,
-                ...patch.metadata,
-            }
+                  ...existingDomain.metadata,
+                  ...patch.metadata,
+              }
             : existingDomain.metadata;
         const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
 
