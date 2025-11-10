@@ -164,6 +164,30 @@ export type CreateUnitInput = Omit<UnitRecord, "id"> & {
  */
 export type CreateInlineUnitInput = Omit<CreateUnitInput, "unitTypeId">;
 
+export type QueryOrderDirection = "asc" | "desc";
+
+export interface QueryFilterValue {
+    value: unknown;
+    operator?: string;
+}
+
+export type QueryFilters = Record<string, QueryFilterValue>;
+
+export type QueryProjection = Record<string, 0 | 1 | boolean>;
+
+export interface UnitListOptions {
+    filters?: QueryFilters;
+    order?: Record<string, QueryOrderDirection>;
+    limit?: number;
+    offset?: number;
+    fields?: QueryProjection;
+    search?: string;
+}
+
+export interface UnitListQuery extends UnitListOptions {
+    typeId: string;
+}
+
 export interface UpdateUnitPatch {
     values?: UnitValues;
     metadata?: UnitMetadata;
@@ -290,4 +314,5 @@ export interface CrystalDatabaseAdapter {
     replaceUnit(doc: StoredUnitDocument): Promise<void>;
     findUnitByBusinessId(businessId: string): Promise<StoredUnitDocument | null>;
     findUnitById(id: string): Promise<StoredUnitDocument | null>;
+    listUnits(query: UnitListQuery): Promise<StoredUnitDocument[]>;
 }

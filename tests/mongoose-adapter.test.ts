@@ -108,6 +108,15 @@ describe("MongooseDatabaseAdapter", () => {
         const sameType = await crystalDb.getUnitTypeById(unitTypeDefinition.id);
         expect(sameType).not.toBeNull();
         expect(sameType?.items).toHaveLength(unitTypeDefinition.items.length);
+
+        const listedUnits = await crystalDb.listUnits(unitTypeDefinition.id, {
+            filters: {
+                businessId: { value: createdUnit.id },
+            },
+        });
+
+        expect(listedUnits).toHaveLength(1);
+        expect(listedUnits[0]?.id).toBe(createdUnit.id);
     });
 });
 

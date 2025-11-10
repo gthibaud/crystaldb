@@ -507,5 +507,76 @@ describe("CrystalDB", () => {
         expect(storedUnit?.typeId).toBe(inlineUnitType.id);
         expect(storedUnit?.values?.name).toBe("Inline User");
         expect(storedUnit?.values?.count).toBe(2);
+
+        const listed = await crystal.listUnits(
+            inlineUnitType.id,
+            {
+                filters: {
+                    businessId: {
+                        value: created.id,
+                    },
+                },
+            },
+            { unitType: inlineUnitType }
+        );
+
+        expect(listed).toHaveLength(1);
+        expect(listed[0]?.id).toBe(created.id);
+    });
+
+    it("lists units with filters, sorting, and pagination", async () => {
+        const crystal = await buildCrystalDB();
+        await crystal.upsertUnitType(baseUnitType);
+
+        await crystal.createUnit({
+            id: "user-1",
+            unitTypeId: baseUnitType.id,
+            values: { name: "Alice" },
+        });
+        await crystal.createUnit({
+            id: "user-2",
+            unitTypeId: baseUnitType.id,
+            values: { name: "Bob" },
+        });
+        await crystal.createUnit({
+            id: "user-3",
+            unitTypeId: baseUnitType.id,
+            values: { name: "Charlie" },
+        });
+
+        const filtered = await crystal.listUnits(baseUnitType.id, {
+            filters: {
+                businessId: { value: "user-2" },
+            },
+        });
+
+        expect(filtered).toHaveLength(1);
+        expect(filtered[0]?.id).toBe("user-2");
+
+        const ordered = await crystal.listUnits(baseUnitType.id, {
+            order: {
+                businessId: "desc",
+            },
+        });
+
+        expect(ordered.map((unit) => unit.id)).toEqual(["user-3", "user-2", "user-1"]);
+
+        const paginated = await crystal.listUnits(baseUnitType.id, {
+            order: {
+                businessId: "asc",
+            },
+            limit: 1,
+            offset: 1,
+        });
+
+        expect(paginated).toHaveLength(1);
+        expect(paginated[0]?.id).toBe("user-2");
+
+        const searched = await crystal.listUnits(baseUnitType.id, {
+            search: "user-3",
+        });
+
+        expect(searched).toHaveLength(1);
+        expect(searched[0]?.id).toBe("user-3");
     });
 });

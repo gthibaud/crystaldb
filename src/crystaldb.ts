@@ -9,6 +9,7 @@ import {
     StoredUnitType,
     StoredUnitTypeDocument,
     Unit,
+    UnitListOptions,
     UnitMetadata,
     UnitTypeDefinition,
     UnitWriteOperation,
@@ -208,6 +209,25 @@ export class CrystalDB {
     }
 
     /**
+     * List units for the given unit type, delegating filtering and pagination to the adapter.
+     *
+     * @param unitTypeId Business identifier of the unit type to list.
+     * @param options Filtering, ordering and pagination options.
+     * @param overrides Provide an inline unit type definition instead of reading from the database.
+     */
+    async listUnits(
+        unitTypeId: string,
+        options?: UnitListOptions,
+        overrides?: { unitType?: UnitTypeDefinition }
+    ): Promise<Unit[]> {
+        const bundle = overrides?.unitType
+            ? this.buildUnitTypeBundleFromDefinition(overrides.unitType, unitTypeId)
+            : await this.getUnitTypeBundleByBusinessId(unitTypeId);
+
+        return this.listUnitsForBundle(bundle, options);
+    }
+
+    /**
      * Create a unit using an inline unit type definition without persisting the schema.
      *
      * Useful for tests or applications that prefer configuration in code rather than in the database.
@@ -323,6 +343,19 @@ export class CrystalDB {
 
         const bundle = this.buildUnitTypeBundleFromDefinition(definition, stored.typeId);
         return this.buildDomainUnit(bundle, stored);
+    }
+
+    private async listUnitsForBundle(
+        bundle: UnitTypeBundle,
+        options?: UnitListOptions
+    ): Promise<Unit[]> {
+        const query = {
+            ...(options ?? {}),
+            typeId: bundle.document.id,
+        };
+
+        const storedDocs = await this.adapter.listUnits(query);
+        return storedDocs.map((doc) => this.buildDomainUnit(bundle, doc));
     }
 
     private buildUnitTypeBundleFromDefinition(

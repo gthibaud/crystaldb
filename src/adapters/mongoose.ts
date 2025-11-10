@@ -1,10 +1,13 @@
-import type { Connection, Model } from "mongoose";
+import type { Connection, FilterQuery, Model } from "mongoose";
 import { Schema } from "mongoose";
 import {
     CrystalDatabaseAdapter,
+    QueryFilterValue,
+    QueryProjection,
     StoredDataItemDocument,
     StoredUnitDocument,
     StoredUnitTypeDocument,
+    UnitListQuery,
 } from "../types";
 
 export interface MongooseAdapterOptions {
@@ -155,6 +158,113 @@ export class MongooseDatabaseAdapter implements CrystalDatabaseAdapter {
 
     async findUnitById(id: string): Promise<StoredUnitDocument | null> {
         return this.unitModel.findOne({ id }).lean<StoredUnitDocument>().exec();
+    }
+
+    async listUnits(query: UnitListQuery): Promise<StoredUnitDocument[]> {
+        const filter = this.buildMongoFilter(query);
+        const projection = this.buildProjection(query.fields);
+
+        let mongooseQuery = this.unitModel.find(filter, projection ?? undefined);
+
+        const sort = this.buildSort(query.order);
+        if (sort) {
+            mongooseQuery = mongooseQuery.sort(sort);
+        }
+
+        if (typeof query.offset === "number" && query.offset > 0) {
+            mongooseQuery = mongooseQuery.skip(query.offset);
+        }
+
+        if (typeof query.limit === "number" && query.limit > 0) {
+            mongooseQuery = mongooseQuery.limit(query.limit);
+        }
+
+        const docs = await mongooseQuery.lean<StoredUnitDocument>().exec();
+        return docs as unknown as StoredUnitDocument[];
+    }
+
+    private buildMongoFilter(query: UnitListQuery): FilterQuery<StoredUnitDocument> {
+        const filter: FilterQuery<StoredUnitDocument> = {
+            typeId: query.typeId,
+        };
+
+        if (query.filters) {
+            for (const [path, condition] of Object.entries(query.filters)) {
+                (filter as Record<string, unknown>)[path] = this.normalizeFilterValue(condition);
+            }
+        }
+
+        if (query.search && query.search.trim().length > 0) {
+            const regex = new RegExp(query.search.trim(), "i");
+            filter.$or = [
+                ...(filter.$or ?? []),
+                { businessId: regex },
+                { id: regex },
+            ];
+        }
+
+        return filter;
+    }
+
+    private normalizeFilterValue(filter: QueryFilterValue): unknown {
+        const operator = filter.operator ?? "eq";
+        const { value } = filter;
+
+        if (operator === "eq") {
+            return value;
+        }
+
+        let normalizedValue = value;
+        if ((operator === "in" || operator === "nin") && !Array.isArray(value)) {
+            normalizedValue = [value];
+        }
+
+        if (operator === "regex" && typeof value === "string") {
+            normalizedValue = new RegExp(value, "i");
+        }
+
+        return {
+            [`$${operator}`]: normalizedValue,
+        };
+    }
+
+    private buildSort(
+        order: UnitListQuery["order"]
+    ): Record<string, 1 | -1> | undefined {
+        if (!order || Object.keys(order).length === 0) {
+            return undefined;
+        }
+
+        const sort: Record<string, 1 | -1> = {};
+        for (const [path, direction] of Object.entries(order)) {
+            sort[path] = direction === "desc" ? -1 : 1;
+        }
+        return sort;
+    }
+
+    private buildProjection(fields?: QueryProjection): Record<string, 0 | 1> | undefined {
+        if (!fields) {
+            return undefined;
+        }
+
+        const projection: Record<string, 0 | 1> = {};
+        for (const [path, value] of Object.entries(fields)) {
+            projection[path] = value ? 1 : 0;
+        }
+
+        for (const mandatory of [
+            "id",
+            "businessId",
+            "typeId",
+            "values",
+            "metadata",
+            "createdAt",
+            "updatedAt",
+        ]) {
+            projection[mandatory] = 1;
+        }
+
+        return projection;
     }
 }
 
