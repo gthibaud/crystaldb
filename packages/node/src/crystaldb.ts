@@ -1,4 +1,6 @@
 import {
+    deserializeUnitValues,
+    serializeUnitValues,
     CreateInlineUnitInput,
     CreateUnitInput,
     CrystalDBOptions,
@@ -14,8 +16,6 @@ import {
     UnitWriteOperation,
     UpdateUnitPatch,
     ValidationHandler,
-    deserializeUnitValues,
-    serializeUnitValues,
 } from "@crystaldb/core";
 
 let cachedIdGenerator: (() => string) | null = null;
@@ -161,9 +161,9 @@ export class CrystalDB {
 
         const mergedValues = patch.values
             ? {
-                ...existingDomain.values,
-                ...patch.values,
-            }
+                  ...existingDomain.values,
+                  ...patch.values,
+              }
             : existingDomain.values;
 
         const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
@@ -175,9 +175,9 @@ export class CrystalDB {
         const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
         const mergedMetadata = patch.metadata
             ? {
-                ...existingDomain.metadata,
-                ...patch.metadata,
-            }
+                  ...existingDomain.metadata,
+                  ...patch.metadata,
+              }
             : existingDomain.metadata;
         const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
 
@@ -290,9 +290,9 @@ export class CrystalDB {
 
         const mergedValues = patch.values
             ? {
-                ...existingDomain.values,
-                ...patch.values,
-            }
+                  ...existingDomain.values,
+                  ...patch.values,
+              }
             : existingDomain.values;
 
         const baseValues = this.mapTechnicalValuesToBusinessRaw(bundle, existingDoc.values);
@@ -304,9 +304,9 @@ export class CrystalDB {
         const storedValues = this.mapBusinessValuesToTechnical(bundle, serializedValues);
         const mergedMetadata = patch.metadata
             ? {
-                ...existingDomain.metadata,
-                ...patch.metadata,
-            }
+                  ...existingDomain.metadata,
+                  ...patch.metadata,
+              }
             : existingDomain.metadata;
         const storedMetadata = this.serializeUnitMetadata(bundle, mergedMetadata);
 

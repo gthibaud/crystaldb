@@ -1,12 +1,12 @@
+import { Collection, Db, Filter, MongoClient } from "mongodb";
 import {
+    CrystalDatabaseAdapter,
     QueryFilterValue,
     QueryProjection,
     StoredUnitDocument,
     StoredUnitTypeDocument,
     UnitListQuery,
-    type CrystalDatabaseAdapter,
 } from "@crystaldb/core";
-import { Collection, Db, Filter, MongoClient } from "mongodb";
 
 export interface MongoAdapterOptions {
     client: MongoClient;

@@ -15,22 +15,22 @@
         "baseUrl": ".",
         "paths": {
             "@crystaldb/core": [
-                "./packages/core/src"
+                "packages/core/src"
             ],
             "@crystaldb/core/*": [
-                "./packages/core/src/*"
+                "packages/core/src/*"
             ],
             "@crystaldb/node": [
-                "./packages/node/src"
+                "packages/node/src"
             ],
             "@crystaldb/node/*": [
-                "./packages/node/src/*"
+                "packages/node/src/*"
             ],
             "@crystaldb/react": [
-                "./packages/react/src"
+                "packages/react/src"
             ],
             "@crystaldb/react/*": [
-                "./packages/react/src/*"
+                "packages/react/src/*"
             ]
         }
     },

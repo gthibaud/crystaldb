@@ -4,14 +4,3 @@ coverage
 *.log
 .DS_Store
 *.tsbuildinfo
-
-# Local package artifacts
-*.tgz
-
-# Editor/project files
-.idea/
-.vscode/
-
-# Environment files
-.env
-.env.*
