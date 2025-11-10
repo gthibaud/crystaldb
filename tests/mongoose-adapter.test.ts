@@ -16,7 +16,7 @@ jest.mock(
     { virtual: true }
 );
 
-import type { UnitTypeDefinition } from "@crystaldb/core";
+import type { Unit, UnitTypeDefinition } from "@crystaldb/core";
 import { CrystalDB, createMongooseAdapter } from "@crystaldb/node";
 
 describe("MongooseDatabaseAdapter", () => {
@@ -80,27 +80,30 @@ describe("MongooseDatabaseAdapter", () => {
         expect(storedUnitType.id).toBe(unitTypeDefinition.id);
         expect(storedUnitType.items).toHaveLength(unitTypeDefinition.items.length);
 
-        const createdUnit = await crystalDb.createUnit({
+        const createdUnitResult = await crystalDb.createUnit({
             unitTypeId: unitTypeDefinition.id,
             values: {
                 name: "Alice",
                 score: 42,
             },
         });
+        const createdUnit = createdUnitResult as unknown as Unit;
 
         expect(createdUnit.unitTypeId).toBe(unitTypeDefinition.id);
         expect(createdUnit.values.name).toBe("Alice");
         expect(createdUnit.values.score).toBe(42);
 
-        const updatedUnit = await crystalDb.updateUnit(createdUnit.id, {
+        const updatedUnitResult = await crystalDb.updateUnit(createdUnit.id, {
             values: { score: 84 },
         });
+        const updatedUnit = updatedUnitResult as unknown as Unit | null;
 
         expect(updatedUnit).not.toBeNull();
         expect(updatedUnit?.values.name).toBe("Alice");
         expect(updatedUnit?.values.score).toBe(84);
 
-        const fetched = await crystalDb.getUnitById(createdUnit.id);
+        const fetchedResult = await crystalDb.getUnitById(createdUnit.id);
+        const fetched = fetchedResult as unknown as Unit | null;
         expect(fetched).not.toBeNull();
         expect(fetched?.values.score).toBe(84);
 
@@ -108,11 +111,12 @@ describe("MongooseDatabaseAdapter", () => {
         expect(sameType).not.toBeNull();
         expect(sameType?.items).toHaveLength(unitTypeDefinition.items.length);
 
-        const listedUnits = await crystalDb.listUnits(unitTypeDefinition.id, {
+        const listedUnitsResult = await crystalDb.listUnits(unitTypeDefinition.id, {
             filters: {
                 businessId: { value: createdUnit.id },
             },
         });
+        const listedUnits = listedUnitsResult as unknown as Unit[];
 
         expect(listedUnits).toHaveLength(1);
         expect(listedUnits[0]?.id).toBe(createdUnit.id);

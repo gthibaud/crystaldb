@@ -17,11 +17,15 @@ jest.mock(
 
 import {
     UnitTypeDefinition,
+    isUnitClassInstance,
     registerKind,
+    registerUnitTypeClass,
+    unregisterUnitTypeClass,
     type GeoAddressValue,
     type PercentageValue,
     type ReferenceValue,
     type Unit,
+    type UnitClassInstance,
 } from "@crystaldb/core";
 import { CrystalDB, createMongoAdapter } from "@crystaldb/node";
 
@@ -291,7 +295,7 @@ describe("CrystalDB", () => {
         const crystal = await buildCrystalDB();
         await crystal.upsertUnitType(baseUnitType);
 
-        const unit = await crystal.createUnit({
+        const unitResult = await crystal.createUnit({
             unitTypeId: baseUnitType.id,
             values: {
                 name: "John Doe",
@@ -328,6 +332,7 @@ describe("CrystalDB", () => {
                 createdBy: "tester",
             },
         });
+        const unit = unitResult as unknown as Unit;
 
         expect(unit.id).toBeDefined();
         expect(unit.values.name).toBe("John Doe");
@@ -347,8 +352,10 @@ describe("CrystalDB", () => {
         expect(manager?.unitId).toBe("manager-123");
         expect(unit.values.active).toBe(true);
         expect((unit.values.ageRange as { start: number; end: number })?.start).toBe(25);
-        expect((unit.values.joinedAt as { iso: string })?.iso).toBe("2024-01-10T12:00:00.000Z");
-        expect((unit.values.billingMonth as { month: string })?.month).toBe("2024-02");
+        const joinedAt = unit.values.joinedAt as unknown as { iso: string } | null;
+        const billingMonth = unit.values.billingMonth as unknown as { month: string } | null;
+        expect(joinedAt?.iso).toBe("2024-01-10T12:00:00.000Z");
+        expect(billingMonth?.month).toBe("2024-02");
         expect((unit.values.role as { key: string })?.key).toBe("manager");
         expect((unit.values.attachments as Array<{ id: string }>)[0]?.id).toBe("file-1");
         expect((unit.values.bonusFormula as { expression: string })?.expression).toBe("base * 0.1");
@@ -475,26 +482,29 @@ describe("CrystalDB", () => {
             ],
         };
 
-        const created = await crystal.createInlineUnit(inlineUnitType, {
+        const createdInlineResult = await crystal.createInlineUnit(inlineUnitType, {
             values: {
                 name: "Inline User",
                 count: 1,
             },
         });
+        const created = createdInlineResult as unknown as Unit;
 
         expect(created.unitTypeId).toBe(inlineUnitType.id);
         expect(created.values.name).toBe("Inline User");
         expect(created.values.count).toBe(1);
 
-        const updated = await crystal.updateInlineUnit(inlineUnitType, created.id, {
+        const updatedInlineResult = await crystal.updateInlineUnit(inlineUnitType, created.id, {
             values: { count: 2 },
         });
+        const updated = updatedInlineResult as unknown as Unit | null;
 
         expect(updated).not.toBeNull();
         expect(updated?.values.count).toBe(2);
         expect(updated?.values.name).toBe("Inline User");
 
-        const fetched = await crystal.getInlineUnitById(inlineUnitType, created.id);
+        const fetchedInlineResult = await crystal.getInlineUnitById(inlineUnitType, created.id);
+        const fetched = fetchedInlineResult as unknown as Unit | null;
 
         expect(fetched).not.toBeNull();
         expect(fetched?.values.name).toBe("Inline User");
@@ -526,6 +536,100 @@ describe("CrystalDB", () => {
 
         expect(listed).toHaveLength(1);
         expect(listed[0]?.id).toBe(created.id);
+    });
+
+    describe("unit type class integration", () => {
+        class UserUnitModel implements UnitClassInstance {
+            id?: string;
+            unitTypeId?: string;
+            values: Unit["values"];
+            metadata?: Unit["metadata"];
+            createdAt?: Date;
+            updatedAt?: Date;
+
+            // Declarations for dynamically assigned properties
+            name?: string | null;
+            bio?: string | null;
+            age?: number | null;
+
+            constructor(initial?: Partial<Unit["values"]>) {
+                this.values = { ...(initial ?? {}) };
+            }
+        }
+
+        afterEach(() => {
+            unregisterUnitTypeClass(baseUnitType.id);
+        });
+
+        it("creates and retrieves instances using a registered class", async () => {
+            registerUnitTypeClass({
+                definition: baseUnitType,
+                ctor: UserUnitModel,
+            });
+
+            const crystal = await buildCrystalDB();
+            await crystal.upsertUnitType(baseUnitType);
+
+            const user = new UserUnitModel();
+            user.name = "Alice Example";
+            user.bio = "## Biography";
+            user.age = 29;
+
+            const created = await crystal.createUnit(user);
+
+            expect(created).toBe(user);
+            expect(created.id).toBeDefined();
+            expect(created.unitTypeId).toBe(baseUnitType.id);
+            expect(created.name).toBe("Alice Example");
+            expect(isUnitClassInstance(created)).toBe(true);
+
+            const fetched = await crystal.getUnitById(UserUnitModel, created.id!);
+            expect(fetched).toBeInstanceOf(UserUnitModel);
+            const fetchedUser = fetched as UserUnitModel | null;
+            expect(fetchedUser?.name).toBe("Alice Example");
+            expect(fetchedUser?.age).toBe(29);
+
+            const fetchedByString = await crystal.getUnitById(created.id!);
+            expect(isUnitClassInstance(fetchedByString)).toBe(true);
+            const fetchedByStringUser = fetchedByString as UserUnitModel | null;
+            expect(fetchedByStringUser?.name).toBe("Alice Example");
+
+            const listed = await crystal.listUnits(UserUnitModel);
+            expect(listed).toHaveLength(1);
+            const listedUsers = listed as UserUnitModel[];
+            expect(listedUsers[0]).toBeInstanceOf(UserUnitModel);
+            expect(listedUsers[0].name).toBe("Alice Example");
+        });
+
+        it("supports inline unit workflows with registered classes", async () => {
+            registerUnitTypeClass({
+                definition: baseUnitType,
+                ctor: UserUnitModel,
+            });
+
+            const crystal = await buildCrystalDB();
+
+            const user = new UserUnitModel();
+            user.name = "Inline Alice";
+            user.age = 31;
+
+            const created = await crystal.createInlineUnit(user);
+            expect(created).toBe(user);
+            expect(created.id).toBeDefined();
+            expect(created.unitTypeId).toBe(baseUnitType.id);
+            expect(created.age).toBe(31);
+
+            const fetched = await crystal.getInlineUnitById(baseUnitType, created.id!);
+            expect(fetched).toBeInstanceOf(UserUnitModel);
+            const fetchedInlineUser = fetched as UserUnitModel | null;
+            expect(fetchedInlineUser?.name).toBe("Inline Alice");
+
+            const listed = await crystal.listUnits(UserUnitModel);
+            expect(listed).toHaveLength(1);
+            const listedInlineUsers = listed as UserUnitModel[];
+            expect(listedInlineUsers[0]).toBeInstanceOf(UserUnitModel);
+            expect(listedInlineUsers[0].name).toBe("Inline Alice");
+        });
     });
 
     it("lists units with filters, sorting, and pagination", async () => {
@@ -563,7 +667,8 @@ describe("CrystalDB", () => {
             },
         });
 
-        expect(ordered.map((unit: Unit) => unit.id)).toEqual(["user-3", "user-2", "user-1"]);
+        const orderedUnits = ordered as Unit[];
+        expect(orderedUnits.map((unit) => unit.id)).toEqual(["user-3", "user-2", "user-1"]);
 
         const paginated = await crystal.listUnits(baseUnitType.id, {
             order: {

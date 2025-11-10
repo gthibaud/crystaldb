@@ -1,6 +1,4 @@
 import {
-    deserializeUnitValues,
-    serializeUnitValues,
     CreateInlineUnitInput,
     CreateUnitInput,
     CrystalDBOptions,
@@ -10,12 +8,21 @@ import {
     StoredUnitType,
     StoredUnitTypeDocument,
     Unit,
+    UnitClassConstructor,
+    UnitClassInstance,
     UnitListOptions,
     UnitMetadata,
     UnitTypeDefinition,
     UnitWriteOperation,
     UpdateUnitPatch,
     ValidationHandler,
+    applyUnitToClassInstance,
+    deserializeUnitValues,
+    extractClassInstanceData,
+    getUnitTypeDefinitionForClass,
+    instantiateUnitClass,
+    isUnitClassInstance,
+    serializeUnitValues,
 } from "@crystaldb/core";
 
 let cachedIdGenerator: (() => string) | null = null;
@@ -27,6 +34,8 @@ const loadIdGenerator = async (): Promise<() => string> => {
     }
     return cachedIdGenerator;
 };
+
+type DomainUnit = Unit | UnitClassInstance;
 
 /**
  * High-level entry point for interacting with CrystalDB unit types and units.
@@ -119,7 +128,33 @@ export class CrystalDB {
      *
      * Requires the unit type to have been persisted through `upsertUnitType`.
      */
-    async createUnit(unit: CreateUnitInput): Promise<Unit> {
+    async createUnit(unit: CreateUnitInput): Promise<DomainUnit>;
+    async createUnit<TInstance extends UnitClassInstance>(unit: TInstance): Promise<TInstance>;
+    async createUnit(
+        unit: CreateUnitInput | UnitClassInstance
+    ): Promise<DomainUnit | UnitClassInstance> {
+        if (isUnitClassInstance(unit)) {
+            const extracted = extractClassInstanceData(unit);
+            if (!extracted) {
+                throw new Error("Unable to extract data from registered unit class instance");
+            }
+
+            const createdUnit = await this.createUnitInternal({
+                id: extracted.id,
+                unitTypeId: extracted.unitTypeId,
+                values: extracted.values,
+                metadata: extracted.metadata,
+            });
+
+            applyUnitToClassInstance(createdUnit, unit);
+            return unit;
+        }
+
+        const createdUnit = await this.createUnitInternal(unit);
+        return this.materializeUnit(createdUnit);
+    }
+
+    private async createUnitInternal(unit: CreateUnitInput): Promise<Unit> {
         const bundle = await this.getUnitTypeBundleByBusinessId(unit.unitTypeId);
 
         const unitId = await this.generateTechnicalId();
@@ -150,7 +185,7 @@ export class CrystalDB {
     /**
      * Apply a patch to an existing unit referencing a database-backed unit type.
      */
-    async updateUnit(unitId: string, patch: UpdateUnitPatch): Promise<Unit | null> {
+    async updateUnit(unitId: string, patch: UpdateUnitPatch): Promise<DomainUnit | null> {
         const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
         if (!existingDoc) {
             return null;
@@ -193,20 +228,64 @@ export class CrystalDB {
         await this.runValidation("update", bundle.domain, domainUnit);
         await this.adapter.replaceUnit(updatedDoc);
 
-        return domainUnit;
+        return this.materializeUnit(domainUnit);
     }
 
     /**
      * Retrieve a unit by its business identifier using the persisted unit type definition.
      */
-    async getUnitById(id: string): Promise<Unit | null> {
-        const stored = await this.adapter.findUnitByBusinessId(id);
+    async getUnitById(id: string): Promise<DomainUnit | null>;
+    async getUnitById<TInstance extends UnitClassInstance>(
+        unitClass: UnitClassConstructor<TInstance>,
+        id: string
+    ): Promise<TInstance | null>;
+    async getUnitById(
+        idOrClass: string | UnitClassConstructor<UnitClassInstance>,
+        maybeId?: string
+    ): Promise<DomainUnit | UnitClassInstance | null> {
+        if (typeof idOrClass === "function") {
+            if (!maybeId) {
+                throw new Error("getUnitById requires an id when a unit class is provided");
+            }
+
+            const definition = getUnitTypeDefinitionForClass(idOrClass);
+            if (!definition) {
+                throw new Error(
+                    `Unit class "${idOrClass.name ?? "anonymous"}" is not registered for any unit type`
+                );
+            }
+
+            const stored = await this.adapter.findUnitByBusinessId(maybeId);
+            if (!stored) {
+                return null;
+            }
+
+            const bundle = await this.getUnitTypeBundleByTechnicalId(stored.typeId);
+            const baseUnit = this.buildDomainUnit(bundle, stored);
+
+            if (baseUnit.unitTypeId !== definition.id) {
+                throw new Error(
+                    `Stored unit type "${baseUnit.unitTypeId}" does not match registered class "${definition.id}"`
+                );
+            }
+
+            const materialized = this.materializeUnit(baseUnit);
+            if (!(materialized instanceof idOrClass)) {
+                throw new Error(
+                    `Registered class for unit type "${definition.id}" did not produce an instance of the expected constructor`
+                );
+            }
+            return materialized as UnitClassInstance;
+        }
+
+        const stored = await this.adapter.findUnitByBusinessId(idOrClass);
         if (!stored) {
             return null;
         }
 
         const bundle = await this.getUnitTypeBundleByTechnicalId(stored.typeId);
-        return this.buildDomainUnit(bundle, stored);
+        const baseUnit = this.buildDomainUnit(bundle, stored);
+        return this.materializeUnit(baseUnit);
     }
 
     /**
@@ -220,10 +299,57 @@ export class CrystalDB {
         unitTypeId: string,
         options?: UnitListOptions,
         overrides?: { unitType?: UnitTypeDefinition }
-    ): Promise<Unit[]> {
+    ): Promise<DomainUnit[]>;
+    async listUnits<TInstance extends UnitClassInstance>(
+        unitClass: UnitClassConstructor<TInstance>,
+        options?: UnitListOptions,
+        overrides?: { unitType?: UnitTypeDefinition }
+    ): Promise<TInstance[]>;
+    async listUnits(
+        unitTypeOrClass: string | UnitClassConstructor<UnitClassInstance>,
+        options?: UnitListOptions,
+        overrides?: { unitType?: UnitTypeDefinition }
+    ): Promise<Array<DomainUnit | UnitClassInstance>> {
+        if (typeof unitTypeOrClass === "function") {
+            const definition = getUnitTypeDefinitionForClass(unitTypeOrClass);
+            if (!definition) {
+                throw new Error(
+                    `Unit class "${unitTypeOrClass.name ?? "anonymous"}" is not registered for any unit type`
+                );
+            }
+
+            if (overrides?.unitType && overrides.unitType.id !== definition.id) {
+                throw new Error(
+                    `Override unit type "${overrides.unitType.id}" does not match registered class "${definition.id}"`
+                );
+            }
+
+            const unitTypeId = definition.id;
+            const persistedDocument = await this.adapter.findUnitTypeByBusinessId(unitTypeId);
+            let bundle: UnitTypeBundle;
+            if (overrides?.unitType) {
+                bundle = this.buildUnitTypeBundleFromDefinition(overrides.unitType, unitTypeId);
+            } else if (persistedDocument) {
+                bundle = this.buildUnitTypeBundle(persistedDocument);
+            } else {
+                bundle = this.buildUnitTypeBundleFromDefinition(definition);
+            }
+
+            const results = await this.listUnitsForBundle(bundle, options);
+
+            return results.map((unit) => {
+                if (!(unit instanceof unitTypeOrClass)) {
+                    throw new Error(
+                        `Registered class for unit type "${definition.id}" did not produce instances of the expected constructor`
+                    );
+                }
+                return unit;
+            }) as UnitClassInstance[];
+        }
+
         const bundle = overrides?.unitType
-            ? this.buildUnitTypeBundleFromDefinition(overrides.unitType, unitTypeId)
-            : await this.getUnitTypeBundleByBusinessId(unitTypeId);
+            ? this.buildUnitTypeBundleFromDefinition(overrides.unitType, unitTypeOrClass)
+            : await this.getUnitTypeBundleByBusinessId(unitTypeOrClass);
 
         return this.listUnitsForBundle(bundle, options);
     }
@@ -234,6 +360,76 @@ export class CrystalDB {
      * Useful for tests or applications that prefer configuration in code rather than in the database.
      */
     async createInlineUnit(
+        definition: UnitTypeDefinition,
+        unit: CreateInlineUnitInput
+    ): Promise<DomainUnit>;
+    async createInlineUnit<TInstance extends UnitClassInstance>(
+        unit: TInstance
+    ): Promise<TInstance>;
+    async createInlineUnit<TInstance extends UnitClassInstance>(
+        definition: UnitTypeDefinition,
+        unit: TInstance
+    ): Promise<TInstance>;
+    async createInlineUnit(
+        definitionOrInstance: UnitTypeDefinition | UnitClassInstance,
+        unitMaybe?: CreateInlineUnitInput | UnitClassInstance
+    ): Promise<DomainUnit | UnitClassInstance> {
+        if (isUnitClassInstance(definitionOrInstance)) {
+            const definition = getUnitTypeDefinitionForClass(
+                definitionOrInstance.constructor as UnitClassConstructor<UnitClassInstance>
+            );
+            if (!definition) {
+                throw new Error(
+                    "Inline unit instance is not associated with a registered unit type"
+                );
+            }
+
+            const extracted = extractClassInstanceData(definitionOrInstance);
+            if (!extracted) {
+                throw new Error("Unable to extract data from registered unit class instance");
+            }
+
+            const createdUnit = await this.createInlineUnitInternal(definition, {
+                id: extracted.id,
+                values: extracted.values,
+                metadata: extracted.metadata,
+            });
+
+            applyUnitToClassInstance(createdUnit, definitionOrInstance);
+            return definitionOrInstance;
+        }
+
+        if (unitMaybe && isUnitClassInstance(unitMaybe)) {
+            if (unitMaybe.unitTypeId && unitMaybe.unitTypeId !== definitionOrInstance.id) {
+                throw new Error(
+                    `Inline unit instance type "${unitMaybe.unitTypeId}" does not match definition "${definitionOrInstance.id}"`
+                );
+            }
+
+            const extracted = extractClassInstanceData(unitMaybe);
+            if (!extracted) {
+                throw new Error("Unable to extract data from registered unit class instance");
+            }
+
+            const createdUnit = await this.createInlineUnitInternal(definitionOrInstance, {
+                id: extracted.id,
+                values: extracted.values,
+                metadata: extracted.metadata,
+            });
+
+            applyUnitToClassInstance(createdUnit, unitMaybe);
+            return unitMaybe;
+        }
+
+        if (!unitMaybe) {
+            throw new Error("createInlineUnit requires a unit payload for the provided definition");
+        }
+
+        const createdUnit = await this.createInlineUnitInternal(definitionOrInstance, unitMaybe);
+        return this.materializeUnit(createdUnit);
+    }
+
+    private async createInlineUnitInternal(
         definition: UnitTypeDefinition,
         unit: CreateInlineUnitInput
     ): Promise<Unit> {
@@ -273,7 +469,7 @@ export class CrystalDB {
         definition: UnitTypeDefinition,
         unitId: string,
         patch: UpdateUnitPatch
-    ): Promise<Unit | null> {
+    ): Promise<DomainUnit | null> {
         const existingDoc = await this.adapter.findUnitByBusinessId(unitId);
         if (!existingDoc) {
             return null;
@@ -322,7 +518,7 @@ export class CrystalDB {
         await this.runValidation("update", bundle.domain, domainUnit);
         await this.adapter.replaceUnit(updatedDoc);
 
-        return domainUnit;
+        return this.materializeUnit(domainUnit);
     }
 
     /**
@@ -330,7 +526,10 @@ export class CrystalDB {
      *
      * Throws if the stored unit references a different definition id to guard against accidental misuse.
      */
-    async getInlineUnitById(definition: UnitTypeDefinition, id: string): Promise<Unit | null> {
+    async getInlineUnitById(
+        definition: UnitTypeDefinition,
+        id: string
+    ): Promise<DomainUnit | null> {
         const stored = await this.adapter.findUnitByBusinessId(id);
         if (!stored) {
             return null;
@@ -343,20 +542,21 @@ export class CrystalDB {
         }
 
         const bundle = this.buildUnitTypeBundleFromDefinition(definition, stored.typeId);
-        return this.buildDomainUnit(bundle, stored);
+        const baseUnit = this.buildDomainUnit(bundle, stored);
+        return this.materializeUnit(baseUnit);
     }
 
     private async listUnitsForBundle(
         bundle: UnitTypeBundle,
         options?: UnitListOptions
-    ): Promise<Unit[]> {
+    ): Promise<DomainUnit[]> {
         const query = {
             ...(options ?? {}),
             typeId: bundle.document.id,
         };
 
         const storedDocs = await this.adapter.listUnits(query);
-        return storedDocs.map((doc) => this.buildDomainUnit(bundle, doc));
+        return storedDocs.map((doc) => this.materializeUnit(this.buildDomainUnit(bundle, doc)));
     }
 
     private buildUnitTypeBundleFromDefinition(
@@ -393,6 +593,10 @@ export class CrystalDB {
             domain,
             maps: this.buildItemMaps(document),
         };
+    }
+
+    private materializeUnit(unit: Unit): DomainUnit {
+        return instantiateUnitClass(unit) as DomainUnit;
     }
 
     private async runValidation(
